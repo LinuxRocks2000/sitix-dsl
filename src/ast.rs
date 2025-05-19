@@ -1,8 +1,7 @@
 // see grammar.bnf
 
 #[derive(Debug)]
-pub enum SitixExpression { // the program is a Vec of these
-    // as are most useful interpretations
+pub enum SitixExpression {
     Block(Block),
     Text(String)
 }
@@ -19,9 +18,6 @@ pub struct Block {
 }
 
 #[derive(Debug)]
-pub struct Braced(Block);
-
-#[derive(Debug)]
 pub enum Statement {
     Expression(Box<Expression>) // a statement that does nothing but evaluate a tail-expression
 }
@@ -35,7 +31,7 @@ pub enum Expression {
     Unary(Unary),
     Binary(Binary),
     Grouping(Box<Expression>),
-    Braced(Box<Braced>),
+    Braced(Box<Block>),
     SitixExpression(Vec<SitixExpression>), // the result of evaluating this is a complex object
     // that implicitly casts down to a String (equal to the concatenation of the stringifications
     // of every sitixexpression contained) and contains a number of properties (such as __filename__ for a file),
@@ -55,12 +51,15 @@ pub enum Unary {
 pub enum Binary {
     Equals(Box<Expression>, Box<Expression>),
     Nequals(Box<Expression>, Box<Expression>),
+
     Add(Box<Expression>, Box<Expression>),
     Sub(Box<Expression>, Box<Expression>),
     Mul(Box<Expression>, Box<Expression>),
     Div(Box<Expression>, Box<Expression>),
+
     And(Box<Expression>, Box<Expression>),
     Or(Box<Expression>, Box<Expression>),
+
     Gt(Box<Expression>, Box<Expression>),
     Gte(Box<Expression>, Box<Expression>),
     Lt(Box<Expression>, Box<Expression>),

@@ -9,6 +9,8 @@ use ast::*;
 mod parse;
 mod inflate;
 use inflate::*;
+mod interpret;
+use interpret::*;
 
 
 // parsing works in three stages.
@@ -43,10 +45,13 @@ fn parse_file(fname : impl AsRef<str>) {
 
     let ast = inflated.parse().unwrap();
 
-    println!("final ast: {:?}", ast);
+    let mut interpreter = InterpreterState::new();
+    println!("interpreter result: {}", ast.interpret(&mut interpreter).unwrap().to_string());
 }
 
 
 fn main() {
     parse_file("test.stx");
 }
+
+// 1061, 1.5, 762
