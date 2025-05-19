@@ -1,0 +1,30 @@
+This is the Backus-Naur form for the Sitix grammar. We use the form
+described in Crafting Interpreters.
+
+note: the "completeness" is because I don't want to butcher the tokenizer for
+expression-testing. rest assured this is far from done
+
+sitix_expression -> (sitix_block | TEXT)*
+
+sitix_block -> "[" block "]" | ("-" "]" sitix_expression closing)
+
+closing -> "[" "/" "]"
+
+block -> (statement ";")* statement?
+
+statement -> expression
+
+expression -> equality
+
+equality -> comparison ( ( "!=" | "==" ) comparison )*
+
+comparison -> term ( (">" | ">=" | "<" | "<=") term) *
+
+term -> factor ( ( "+" | "-" ) factor)*
+
+factor -> unary ( ( "*" | "/" ) unary)*
+
+unary -> ( "!" | "-" unary ) | primary
+
+primary -> NUMBER | STRING | "true" | "false" | nil |
+	( "(" expression ")" ) | ( "{" block "}" )

@@ -1,0 +1,129 @@
+[!]
+files marked with [!] are *rendered* as sitix. files marked with [?] are interpreted as sitix but not rendered. files not marked are copied as plain.
+
+the last expression in a statement is the tail-expression, and is directly returned.
+
+for instance: ["hello, world"] renders directly to `hello, world`, because it is a statement with a tail-expression.
+
+[variable = "value";] here, a variable is set equal to a value. the return value of assignment is the assigned value (this allows chaining), so we need a terminator symbol `;`
+to prevent `value` from being directly rendered.
+
+[variable] here, the variable is dereferenced. because it's a tail-expression, it's directly rendered.
+
+[function = @() "hello, world"; ] functions are always anonymous. a function-expression is defined with @(argument list) expression. this function is stored
+in a variable called "function".
+
+we can call the function like so: [function()]
+
+you can combine multiple statements into a single expression with curly braces: [function = @(){ "hello, world" };].
+because the interior of the function contains a tail-expression, calling the function essentially returns that.
+there is no return statement in sitix.
+
+any sitix block can be extended like this: [sitix_code -] interior [/]. The interior will be interpreted as a single sitix expression. This means
+you can define functions like
+[function = @() -]
+	"hello, world!"
+[/]
+
+this is generally preferred to inlining functions, especially if your function needs to produce templated content.
+
+functions can have arguments. sitix is untyped, so it looks like [function = @(name, age) -] your name is [name] and your age is [age]! [/].
+calling this like [function("jordan", 20)] does exactly what you'd expect.
+
+a sitix peculiarity that greatly simplifies templating is that an expression immediately following a function call without a terminating character `;`
+will be interpreted as the last argument. this allows templating patterns like so:
+
+[template = @(title, content)]
+	the page is [title] with content [content]
+[/]
+
+[template("main page") -]
+	this is the page content!
+[/]
+
+unlike in PHP, tokens can't cross a block boundary, so [variable = "hello,"] [+ " world";] is a syntax error. It may be helpful to imagine that sitix blocks
+automatically insert braces, meaning the above code looks like [ { variable = "hello," } ][ { + " world"; } ] - that's not quite what happens, but it's not
+a bad way to think about it.
+
+sitix has a single built-in abstract storage primitive: the table. tables are defined inside brackets inside a sitix expression, like so: [variable = [0, 6, 7]].
+please avoid ever using anonymous tables like [[1, 2, 3]].
+you access values inside tables just like you'd expect: [variable[0] == 1] evaluates to true.
+
+you can also explicitly set indices: [variable = [2 : 1, 1 : 2, 0 : 3]]. [variable[0] == 3].
+
+indices can be any type, but must be unique: [variable = ["hello" : "world"]]
+
+you can mix types inside tables: [variable = ["hello" : "world", "number" : 1, 2 : "three"]]
+
+you can use the value of a variable to index into a table: [index = "hello"; variable = [index : "world"]]
+
+you can anonymously append to a table (it will pick an index equal to the highest already-extant integer index plus one): [variable = ["hello" : "world", 3 : 1]; variable[] = 2],
+and then [variable[4] == 2].
+you can directly update an index or create a new one like [variable[5] = 3].
+
+sitix supports conditional branching. the syntax is `if switch_expression true_expression`: if switch_expression evaluates to true, the if statement returns true_expression.
+
+[if "world" == "world" "hello, everybody!"]
+
+generally this is most useful with extended blocks: [if world == "world" -] this is what happens when true! [/]. when not using an extended block, put
+the if bodies in braces for readability: not required, but definitely recommended.
+
+you can also use `else`: [if world == "world" { "hello, everybody!" } else { "goodbye" }].
+
+`else` is also a terminator like `/`, meaning you can build if statements like
+[if condition -]
+	condition is true
+[else "condition is not true"]
+
+just like with any other block, you can extend else-terminator blocks:
+
+[if condition -]
+	condition is true
+[else-]
+	condition is false
+[/]
+
+this is the preferred way to use if statements in sitix. avoid inlining wherever possible.
+
+sitix supports two types of loops: `while` and `each`.
+
+while looks like this: [x = 0; while { x ++ <= 10 } { "this text will be rendered " }]. while loops containing a body with a tail-expression simply output the concatenation
+of the tail expression evaluated at every iteration. (the ++ operator returns the new value of the variable)
+this means you can use while loops extended like this:
+
+[x = 0; while { x ++ <= 10 } -]
+	this has been written [x] times!
+[/]
+
+the far more useful variant is the `each` loop, which looks like this (and has the same concatenation semantics as while):
+[each table -> table_item -]
+	the table item is [table_item]
+[/]
+
+aside: you can sort tables using the simple sort() function, which sorts in ascending order of keys. you can use quicksort() to sort in your preferred order.
+
+sitix contains an `include` standard library function which has a wide range of behavior:
+for files WITHOUT a sitix opening phrase, it opens them as a string
+for files WITH a sitix opening phrase, it opens them as a sitix variable
+for folders, it opens them as a sitix table of the contained files indexed by their filenames.
+this is obviously extremely useful.
+
+NOTE: a "sitix expression" is different from a braced expression. the chief distinction is that sitix expressions evaluate to a *concatenation* of the tail-expressions of
+every statement inside them, while braced expressions contain only a single tail-expression. mr croup likes words, but mr. vandemar is always hungry...
+
+sitix is a functional language. there are no classes.
+
+sitix expressions can contain properties. this is done with the "export" keyword. this means an alternative way to write a (very limited) table is essentially:
+[variable = -]
+	[export child = "hello, world"]
+[/]
+
+[variable.child == "hello, world"]
+
+this is useful when creating templates. for instance, you might have a datafile called config.stx containing an object that looks like this:
+
+[export baseurl = "https://example.com/"]
+
+and then you use that later:
+
+[config = include("config.stx"); config.baseurl == "https://example.com/"]
