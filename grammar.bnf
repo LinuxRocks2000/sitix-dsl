@@ -12,7 +12,7 @@ closing -> "[" "/" "]"
 
 block -> (statement ";")* statement?
 
-statement -> expression
+statement -> (("let" | "global") IDENTIFIER "=" expression) | ("print" expression) | expression
 
 expression -> equality
 
@@ -27,4 +27,4 @@ factor -> unary ( ( "*" | "/" ) unary)*
 unary -> ( "!" | "-" unary ) | primary
 
 primary -> NUMBER | STRING | "true" | "false" | nil |
-	( "(" expression ")" ) | ( "{" block "}" )
+	( "(" expression ")" ) | ( "{" block "}" ) | IDENTIFIER

@@ -17,9 +17,12 @@ pub struct Block {
     pub tail : Option<Statement>
 }
 
+
 #[derive(Debug)]
 pub enum Statement {
-    Expression(Box<Expression>) // a statement that does nothing but evaluate a tail-expression
+    Expression(Box<Expression>), // a statement that does nothing but evaluate a tail-expression
+    Print(Box<Expression>),
+    LetAssign(String, Box<Expression>)
 }
 
 
@@ -66,3 +69,6 @@ pub enum Binary {
     Lte(Box<Expression>, Box<Expression>),
 }
 
+
+// 86.3, 12.5, 17.0
+// -> city at -804.3, 2.5, 212.5

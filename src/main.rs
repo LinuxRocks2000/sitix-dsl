@@ -45,6 +45,8 @@ fn parse_file(fname : impl AsRef<str>) {
 
     let ast = inflated.parse().unwrap();
 
+    println!("ast: {:#?}", ast);
+
     let mut interpreter = InterpreterState::new();
     println!("interpreter result: {}", ast.interpret(&mut interpreter).unwrap().to_string());
 }

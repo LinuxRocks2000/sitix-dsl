@@ -20,7 +20,8 @@ pub enum TokenType {
     And, Or, Not,
     While, Each, If,
     True, False, Nil,
-    Export
+    Let, Global,
+    Print
 }
 
 #[derive(Debug, Clone)]

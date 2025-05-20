@@ -96,7 +96,16 @@ impl Block {
 impl Statement {
     fn interpret(&self, i : &mut InterpreterState) -> InterpretResult<Data> {
         match self {
-            Self::Expression(expr) => expr.interpret(i)
+            Self::Expression(expr) => expr.interpret(i),
+            Self::Print(expr) => {
+                println!("{}", expr.interpret(i)?.to_string());
+                Ok(Data::Nil)
+            },
+            Self::LetAssign(ident, expr) => {
+                let value = expr.interpret(i)?;
+
+                Ok(Data::Nil)
+            }
         }
     }
 }
@@ -118,7 +127,7 @@ impl Expression {
             },
             Self::True => Ok(Data::Boolean(true)),
             Self::False => Ok(Data::Boolean(false)),
-            Self::Nil => Ok(Data::Boolean(false))
+            Self::Nil => Ok(Data::Nil)
         }
     }
 }

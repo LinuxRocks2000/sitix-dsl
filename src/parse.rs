@@ -177,17 +177,54 @@ impl crate::inflate::SitixTree {
     }
 
     fn parse_statement(&mut self) -> ParseResult<Statement> {
-        // TODO: implement statements that aren't just raw expressions
+        if let Some(tok) = self.content.peek() {
+            match tok.tp {
+                TokenType::Print => {
+                    self.content.next();
+                    return Ok(Statement::Print(Box::new(self.parse_expression()?)));
+                },
+                TokenType::Let => {
+                    self.content.next();
+                    let tok = self.content.next().ok_or(ParseError::UnexpectedEof)?;
+                    if let TokenType::Literal(Literal::Ident(ident)) = tok.tp {
+                        self.pcheck(TokenType::Eq)?;
+                        return Ok(
+                            Statement::LetAssign(ident, Box::new(self.parse_expression()?))
+                        );
+                    }
+                    else {
+                        return Err(ParseError::Expected("identifier".to_string(), tok.tp.to_string()));
+                    }
+                },
+                TokenType::Global => todo!("global variables"),
+                _ => {}
+            }
+        }
         Ok(Statement::Expression(Box::new(self.parse_expression()?)))
     }
 
     fn parse_block(&mut self) -> ParseResult<Block> {
         // a block is a semicolon-separated list of statements,
         // with an optional tail
-        // TODO: implement semicolon-sep (right now it just defaults to tail)
+        let mut inner = Vec::new();
+        let mut tail = None;
+        loop {
+            tail = Some(self.parse_statement()?);
+            if let None = self.content.peek() { // check this before doing semicolon checks; if the output is ended without
+                                                // a semicolon, the preceding statement is a tail
+                break;
+            }
+            self.pcheck(TokenType::Semicolon)?; // if we *didn't* find an eob, the next token *must* be a semicolon!
+            inner.push(tail.unwrap());
+            tail = None;
+            if let None = self.content.peek() { // end of block check, except after the tail-expression has already been pushed
+                                                // into the inner list
+                break;
+            }
+        }
         Ok(Block {
-            inner : vec![], // this needs to be an actual vec of statements
-            tail : Some(self.parse_statement()?)
+            inner,
+            tail
         })
     }
 

@@ -38,6 +38,9 @@ pub fn lexer(mut buffer : impl LookaheadBuffer<char>) -> Vec<Token> { // please 
                             "and" => TokenType::And,
                             "or" => TokenType::Or,
                             "not" => TokenType::Not,
+                            "let" => TokenType::Let,
+                            "print" => TokenType::Print,
+                            "global" => TokenType::Global,
                             _ => { TokenType::Literal(Literal::Ident(idb)) }
                         }, Span::new(ident_start, buffer.get_head())));
                     }
