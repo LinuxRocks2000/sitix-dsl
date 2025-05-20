@@ -12,13 +12,13 @@ closing -> "[" "/" "]"
 
 block -> (statement ";")* statement?
 
-statement -> (("let" | "global") IDENTIFIER "=" expression) | ("print" expression) | expression
+statement -> "debugger" | (("let" | "global") IDENTIFIER "=" expression) | ("print" expression) | expression
 
-expression -> equality
+expression -> (IDENTIFIER "=" expression) | equality
 
 equality -> comparison ( ( "!=" | "==" ) comparison )*
 
-comparison -> term ( (">" | ">=" | "<" | "<=") term) *
+comparison -> term ( (">" | ">=" | "<" | "<=" | "and" | "or") term) *
 
 term -> factor ( ( "+" | "-" ) factor)*
 

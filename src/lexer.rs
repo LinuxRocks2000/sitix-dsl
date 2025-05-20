@@ -20,7 +20,7 @@ pub fn lexer(mut buffer : impl LookaheadBuffer<char>) -> Vec<Token> { // please 
                         let mut idb = String::new();
                         idb.push(c);
                         while let Some(c) = buffer.peek() {
-                            if c.is_alphanumeric() {
+                            if c.is_alphanumeric() || c == '_' {
                                 idb.push(c);
                                 buffer.next();
                             }
@@ -41,6 +41,7 @@ pub fn lexer(mut buffer : impl LookaheadBuffer<char>) -> Vec<Token> { // please 
                             "let" => TokenType::Let,
                             "print" => TokenType::Print,
                             "global" => TokenType::Global,
+                            "debugger" => TokenType::Debugger,
                             _ => { TokenType::Literal(Literal::Ident(idb)) }
                         }, Span::new(ident_start, buffer.get_head())));
                     }
@@ -133,12 +134,6 @@ pub fn lexer(mut buffer : impl LookaheadBuffer<char>) -> Vec<Token> { // please 
                             }
                             '@' => {
                                 output.push(Token::new(TokenType::At, Span::new(span_start, span_start)));
-                            }
-                            '&' => {
-                                output.push(Token::new(TokenType::And, Span::new(span_start, span_start)));
-                            }
-                            '|' => {
-                                output.push(Token::new(TokenType::Or, Span::new(span_start, span_start)));
                             }
                             '+' => {
                                 match buffer.peek() {

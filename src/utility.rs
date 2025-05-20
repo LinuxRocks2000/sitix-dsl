@@ -21,7 +21,7 @@ pub enum TokenType {
     While, Each, If,
     True, False, Nil,
     Let, Global,
-    Print
+    Print, Debugger
 }
 
 #[derive(Debug, Clone)]

@@ -22,7 +22,9 @@ pub struct Block {
 pub enum Statement {
     Expression(Box<Expression>), // a statement that does nothing but evaluate a tail-expression
     Print(Box<Expression>),
-    LetAssign(String, Box<Expression>)
+    LetAssign(String, Box<Expression>),
+    GlobalAssign(String, Box<Expression>),
+    Debugger
 }
 
 
@@ -41,7 +43,9 @@ pub enum Expression {
     // some of which are exports.
     True,
     False,
-    Nil
+    Nil,
+    VariableAccess(String),
+    Assignment(Box<Expression>, Box<Expression>)
 }
 
 #[derive(Debug)]

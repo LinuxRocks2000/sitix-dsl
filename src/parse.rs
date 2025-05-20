@@ -35,6 +35,7 @@ impl crate::inflate::SitixTree {
         if let Some(tok) = self.content.next() {
             let tok = tok.tp;
             Ok(match tok {
+                TokenType::Literal(Literal::Ident(ident)) => Expression::VariableAccess(ident),
                 TokenType::Literal(lit) => Expression::Literal(lit),
                 TokenType::True => Expression::True,
                 TokenType::False => Expression::False,
@@ -43,6 +44,11 @@ impl crate::inflate::SitixTree {
                     let expr = self.parse_expression()?;
                     self.pcheck(TokenType::RightParen)?;
                     Expression::Grouping(Box::new(expr))
+                },
+                TokenType::LeftBrace => {
+                    let block = self.parse_block()?;
+                    self.pcheck(TokenType::RightBrace)?;
+                    Expression::Braced(Box::new(block))
                 },
                 _ => { return Err(ParseError::Expected("literal, boolean, parenthesized expression, or nil".to_string(), tok.to_string())); }
             })
@@ -143,6 +149,14 @@ impl crate::inflate::SitixTree {
                 TokenType::Lte => {
                     self.content.next();
                     Expression::Binary(Binary::Lte(Box::new(lhs), Box::new(self.parse_term()?)))
+                },
+                TokenType::And => {
+                    self.content.next();
+                    Expression::Binary(Binary::And(Box::new(lhs), Box::new(self.parse_term()?)))
+                },
+                TokenType::Or => {
+                    self.content.next();
+                    Expression::Binary(Binary::Or(Box::new(lhs), Box::new(self.parse_term()?)))
                 }
                 _ => lhs
             })
@@ -172,31 +186,51 @@ impl crate::inflate::SitixTree {
         }
     }
 
+    fn parse_assignment(&mut self) -> ParseResult<Expression> {
+        let expr = self.parse_equality()?;
+        if let Some(tok) = self.content.peek() {
+            if let TokenType::Eq = tok.tp {
+                self.content.next();
+                let value = self.parse_assignment()?;
+                return Ok(Expression::Assignment(Box::new(expr), Box::new(value)));
+            }
+        }
+        Ok(expr)
+    }
+
     fn parse_expression(&mut self) -> ParseResult<Expression> {
-        self.parse_equality()
+        self.parse_assignment()
     }
 
     fn parse_statement(&mut self) -> ParseResult<Statement> {
         if let Some(tok) = self.content.peek() {
-            match tok.tp {
+            match &tok.tp {
                 TokenType::Print => {
                     self.content.next();
                     return Ok(Statement::Print(Box::new(self.parse_expression()?)));
                 },
-                TokenType::Let => {
+                TokenType::Debugger => {
                     self.content.next();
+                    return Ok(Statement::Debugger);
+                },
+                TokenType::Let | TokenType::Global => {
+                    self.content.next();
+                    let pattern = match tok.tp {
+                        TokenType::Let => Statement::LetAssign,
+                        TokenType::Global => Statement::GlobalAssign,
+                        _ => panic!("unreachable {:?}", tok.tp)
+                    };
                     let tok = self.content.next().ok_or(ParseError::UnexpectedEof)?;
                     if let TokenType::Literal(Literal::Ident(ident)) = tok.tp {
                         self.pcheck(TokenType::Eq)?;
                         return Ok(
-                            Statement::LetAssign(ident, Box::new(self.parse_expression()?))
+                            pattern(ident, Box::new(self.parse_expression()?))
                         );
                     }
                     else {
                         return Err(ParseError::Expected("identifier".to_string(), tok.tp.to_string()));
                     }
                 },
-                TokenType::Global => todo!("global variables"),
                 _ => {}
             }
         }
@@ -207,19 +241,32 @@ impl crate::inflate::SitixTree {
         // a block is a semicolon-separated list of statements,
         // with an optional tail
         let mut inner = Vec::new();
-        let mut tail = None;
+        let mut tail;
         loop {
             tail = Some(self.parse_statement()?);
-            if let None = self.content.peek() { // check this before doing semicolon checks; if the output is ended without
-                                                // a semicolon, the preceding statement is a tail
-                break;
+            match self.content.peek() { // check this before doing semicolon checks; if the output is ended without
+                                        // a semicolon, the preceding statement is a tail
+                None => {
+                    break;
+                },
+                Some(tok) => {
+                    if let TokenType::RightBrace = tok.tp {
+                        break;
+                    }
+                }
             }
             self.pcheck(TokenType::Semicolon)?; // if we *didn't* find an eob, the next token *must* be a semicolon!
             inner.push(tail.unwrap());
             tail = None;
-            if let None = self.content.peek() { // end of block check, except after the tail-expression has already been pushed
-                                                // into the inner list
-                break;
+            match self.content.peek() {
+                None => {
+                    break;
+                },
+                Some(tok) => {
+                    if let TokenType::RightBrace = tok.tp {
+                        break;
+                    }
+                }
             }
         }
         Ok(Block {

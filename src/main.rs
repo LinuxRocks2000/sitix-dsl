@@ -1,11 +1,9 @@
 mod lookahead;
 use lookahead::*;
 mod utility;
-use utility::*;
 mod lexer;
 use lexer::*;
 mod ast;
-use ast::*;
 mod parse;
 mod inflate;
 use inflate::*;
@@ -49,6 +47,7 @@ fn parse_file(fname : impl AsRef<str>) {
 
     let mut interpreter = InterpreterState::new();
     println!("interpreter result: {}", ast.interpret(&mut interpreter).unwrap().to_string());
+    println!("interpreter state: {:?}", interpreter);
 }
 
 

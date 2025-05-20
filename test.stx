@@ -1,1 +1,11 @@
-[let variable = -]ohhh, every move I make, hey hey[/]
+[
+	global variable = "global scope";
+	variable = "semiglobal";
+	{
+		let variable = "local scope";
+		print "actually variable is " + variable;
+	};
+	variable
+]
+
+[variable]
