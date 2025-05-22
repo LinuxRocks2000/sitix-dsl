@@ -1,11 +1,7 @@
 [
-	global variable = "global scope";
-	variable = "semiglobal";
-	{
-		let variable = "local scope";
-		print "actually variable is " + variable;
+	global recursion = @(num) {
+		print("num is " + num);
+		if num != 0 recursion(num - 1);
 	};
-	variable
+	recursion(3);
 ]
-
-[variable]

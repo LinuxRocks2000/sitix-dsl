@@ -12,19 +12,30 @@ closing -> "[" "/" "]"
 
 block -> (statement ";")* statement?
 
-statement -> "debugger" | (("let" | "global") IDENTIFIER "=" expression) | ("print" expression) | expression
+statement -> "debugger" | (("let" | "global") IDENTIFIER "=" expression) | ("print" expression) |
+	     expression
 
 expression -> (IDENTIFIER "=" expression) | equality
 
-equality -> comparison ( ( "!=" | "==" ) comparison )*
+equality -> logic ( ( "!=" | "==" ) logic )*
+
+logic -> comparison ( ( "and" | "or" ) logic )*
 
 comparison -> term ( (">" | ">=" | "<" | "<=" | "and" | "or") term) *
 
 term -> factor ( ( "+" | "-" ) factor)*
 
-factor -> unary ( ( "*" | "/" ) unary)*
+factor -> unary ( ( "*" | "/" | "%" ) unary)*
 
-unary -> ( "!" | "-" unary ) | primary
+unary -> ( "!" | "-" unary ) | call
+
+call -> primary ( "(" arguments? ")" )* ;
+
+arguments -> expression ( "," expression )* ;
 
 primary -> NUMBER | STRING | "true" | "false" | nil |
-	( "(" expression ")" ) | ( "{" block "}" ) | IDENTIFIER
+	( "(" expression ")" ) | ( "{" block "}" ) | IDENTIFIER |
+	if | ("[" (expression ",")* expression? "]") | ( "while" expression expression ) |
+	( "fun" "(" IDENT? ( "," IDENT )* ")" expression )
+
+if -> "if" expression expression ("else" expression)?

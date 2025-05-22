@@ -1,0 +1,5 @@
+[ nil /* this is the smallest sitix fizzbuzz I'm aware of */]
+
+[let n = 0;
+while n < 20 -][n = n + 1] [if n % 3 == 0 -]Fizz[/][if n % 5 == 0 -]Buzz[/]
+[/]

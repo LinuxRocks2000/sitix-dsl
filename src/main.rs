@@ -17,7 +17,7 @@ use interpret::*;
     A knight travels through the land, accumulating much dust about him; it takes but an LL(1) interpreting step to scrub clean
     the shining armor within!
 
-    Converts characters into Tokens, which are a thin wrapper over enum TokenType and an attached span (for debugging).
+    Code is dirty; the lexer cleans it up into a nice and simple Token-ized representation.
    Stage 2: Inflator
     Wherein embarks our hero (the language :P) to contrive distinction across the vast gulfs of tokens; producing meaning from chaos,
     storing Vec<Token>s in abstract structures to represent the shape of an actual sitix expression (recursively, of course!)
@@ -46,8 +46,8 @@ fn parse_file(fname : impl AsRef<str>) {
     println!("ast: {:#?}", ast);
 
     let mut interpreter = InterpreterState::new();
+    interpreter.load_standard_ffi();
     println!("interpreter result: {}", ast.interpret(&mut interpreter).unwrap().to_string());
-    println!("interpreter state: {:?}", interpreter);
 }
 
 

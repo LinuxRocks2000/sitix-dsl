@@ -3,6 +3,29 @@
 use crate::ast::*;
 use thiserror::Error;
 use std::collections::HashMap;
+use std::cell::RefCell;
+use std::sync::Arc;
+
+
+#[derive(Clone)]
+pub enum SitixFunction {
+    Builtin(&'static dyn Fn(&mut InterpreterState, &[Data]) -> InterpretResult<Data>),
+    UserDefined(Vec<String>, Box<Expression>)
+}
+
+
+impl std::fmt::Debug for SitixFunction {
+    fn fmt(&self, f : &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "<function>")
+    }
+}
+
+
+impl std::cmp::PartialEq<Self> for SitixFunction {
+    fn eq(&self, other : &SitixFunction) -> bool {
+        false // TODO: make comparing functions a thing
+    }
+}
 
 
 #[derive(Debug, PartialEq, Clone)]
@@ -15,7 +38,8 @@ pub enum Data { // data is the *interpreter's* idea of Sitix data.
     Sitix(String), // this is a fairly magical high-level builtin type. it is the result of evaluating
                    // a SitixExpression.
                    // TODO: handle properties (this should eventually be (String, HashMap<String, Data>), once we've implemented that)
-    // TODO: tables and other abstract datatypes
+    Table(Vec<Data>,), // TODO: make tables what they're supposed to be (a HashMap<Data, Data> that also acts like a Vec indexed by Data::Numbers)
+    Function(SitixFunction)
 }
 
 impl ToString for Data {
@@ -26,7 +50,9 @@ impl ToString for Data {
             Self::Number(n) => n.to_string(),
             Self::String(s) => s.clone(),
             Self::Sitix(s) => s.clone(),
-            Self::VariableHandle(u) => format!("variable handle {}", u)
+            Self::VariableHandle(u) => format!("variable handle {}", u),
+            Self::Table(t) => format!("{:?}", t),
+            Self::Function(f) => format!("<function>")
         }
     }
 }
@@ -50,6 +76,15 @@ impl Data {
             Err(InterpretError::InvalidType(format!("expected number, got {:?}", self)))
         }
     }
+
+    pub fn force_function(&self) -> InterpretResult<SitixFunction> {
+        if let Self::Function(data) = self {
+            Ok(data.clone())
+        }
+        else {
+            Err(InterpretError::InvalidType(format!("expected function, got {:?}", self)))
+        }
+    }
 }
 
 
@@ -66,6 +101,16 @@ impl InterpreterState {
             variables : vec![],
             scopes : vec![HashMap::new()] // global scope
         }
+    }
+
+    pub fn load_standard_ffi(&mut self) {
+        self.create_global("print".to_string(), Data::Function(SitixFunction::Builtin(&|interpreter, args : &[Data]| {
+            for arg in args {
+                print!("{}", arg.to_string());
+            }
+            println!("");
+            Ok(Data::Nil)
+        })));
     }
 
     pub fn get(&self, name : &String) -> InterpretResult<Data> {
@@ -166,10 +211,6 @@ impl Statement {
     fn interpret(&self, i : &mut InterpreterState) -> InterpretResult<Data> {
         match self {
             Self::Expression(expr) => expr.interpret(i),
-            Self::Print(expr) => {
-                println!("{}", expr.interpret(i)?.to_string());
-                Ok(Data::Nil)
-            },
             Self::LetAssign(ident, expr) => {
                 let value = expr.interpret(i)?;
                 i.create(ident.clone(), value);
@@ -215,6 +256,71 @@ impl Expression {
                 let value = value.interpret(i)?;
                 i.set(var, i.deref(value.clone())?)?;
                 Ok(value)
+            },
+            Self::IfBranch(condition, truthy, falsey) => {
+                let way = condition.interpret(i)?;
+                let way = i.deref(way)?.force_boolean()?;
+                if way {
+                    truthy.interpret(i)
+                }
+                else if let Some(falsey) = falsey {
+                    falsey.interpret(i)
+                }
+                else {
+                    Ok(Data::Nil)
+                }
+            },
+            Self::Table(table) => {
+                let mut out = vec![];
+                for expr in table {
+                    out.push(expr.interpret(i)?);
+                }
+                Ok(Data::Table(out))
+            },
+            Self::While(cond, body) => {
+                let mut out = String::new();
+                loop {
+                    let do_exec = cond.interpret(i)?;
+                    let do_exec = i.deref(do_exec)?;
+                    if do_exec.force_boolean()? {
+                        let expressive_output = body.interpret(i)?;
+                        let expressive_output = i.deref(expressive_output)?;
+                        out += &expressive_output.to_string();
+                    }
+                    else {
+                        break;
+                    }
+                }
+                Ok(Data::String(out))
+            },
+            Self::Call(fun, args) => {
+                let fun = fun.interpret(i)?;
+                let fun = i.deref(fun)?;
+                let mut to_args = vec![];
+                for arg in args {
+                    to_args.push(arg.interpret(i)?);
+                }
+                match fun.force_function()? {
+                    SitixFunction::Builtin(built_in) => {
+                        built_in(i, &to_args)
+                    },
+                    SitixFunction::UserDefined(req_args, contents) => {
+                        i.open_scope();
+                        if args.len() != req_args.len() {
+                            panic!("invalid argument count (TODO: make this a real error)");
+                        }
+                        for (name, content) in req_args.into_iter().zip(to_args.into_iter()) {
+                            let content = i.deref(content)?;
+                            i.create(name, content);
+                        }
+                        let ret = contents.interpret(i);
+                        i.close_scope();
+                        ret
+                    }
+                }
+            },
+            Self::Function(args, contents) => {
+                Ok(Data::Function(SitixFunction::UserDefined(args.clone(), contents.clone())))
             }
         }
     }
@@ -225,10 +331,12 @@ impl Unary {
         Ok(match self {
             Self::Negative(expr) => {
                 let res = expr.interpret(i)?;
+                let res = i.deref(res)?;
                 Data::Number(res.force_number()? * -1.0)
             },
             Self::Not(expr) => {
                 let res = expr.interpret(i)?;
+                let res = i.deref(res)?;
                 Data::Boolean(!(res.force_boolean()?))
             }
         })
@@ -265,15 +373,21 @@ impl Binary {
             },
             Self::And(one, two) => {
                 let one = one.interpret(i)?;
-                let two = two.interpret(i)?;
                 let one = i.deref(one)?.force_boolean()?;
+                if one == false {
+                    return Ok(Data::Boolean(false));
+                }
+                let two = two.interpret(i)?;
                 let two = i.deref(two)?.force_boolean()?;
                 Data::Boolean(one && two)
             },
             Self::Or(one, two) => {
                 let one = one.interpret(i)?;
-                let two = two.interpret(i)?;
                 let one = i.deref(one)?.force_boolean()?;
+                if one == true {
+                    return Ok(Data::Boolean(true));
+                }
+                let two = two.interpret(i)?;
                 let two = i.deref(two)?.force_boolean()?;
                 Data::Boolean(one || two)
             },
@@ -320,6 +434,13 @@ impl Binary {
                 let one = i.deref(one)?.force_number()?;
                 let two = i.deref(two)?.force_number()?;
                 Data::Number(one / two)
+            },
+            Self::Mod(one, two) => {
+                let one = one.interpret(i)?;
+                let two = two.interpret(i)?;
+                let one = i.deref(one)?.force_number()?;
+                let two = i.deref(two)?.force_number()?;
+                Data::Number(one % two)
             },
             Self::Gt(one, two) => {
                 let one = one.interpret(i)?;

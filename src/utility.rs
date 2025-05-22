@@ -12,16 +12,16 @@ pub enum TokenType {
     BlockOpen, BlockClose(bool), // leftparen and rightparen respectively. the lexer actually has some context about sitix blocks, and passes them to the inflator because it's nice
                                  // if the bool in BlockClose is true, this block contains an expression
     LeftParen, RightParen, LeftBrace, RightBrace, LeftBracket, RightBracket,
-    Comma, Dot, Plus, Minus, Slash, Star, Semicolon, Colon, At, DashTo,
+    Comma, Dot, Plus, Minus, Slash, Star, Modulo, Semicolon, Colon, DashTo,
     Eq, EqEq, Neq, Gt, Lt, Gte, Lte,
     PlusPlus, MinusMinus,
     PlusEq, MinusEq, StarEq, SlashEq,
     Literal(Literal),
     And, Or, Not,
-    While, Each, If,
+    While, Each, If, Else,
     True, False, Nil,
-    Let, Global,
-    Print, Debugger
+    Let, Global, Fun,
+    Debugger
 }
 
 #[derive(Debug, Clone)]

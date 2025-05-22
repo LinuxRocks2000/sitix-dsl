@@ -32,6 +32,7 @@ pub fn lexer(mut buffer : impl LookaheadBuffer<char>) -> Vec<Token> { // please 
                             "while" => TokenType::While,
                             "each" => TokenType::Each,
                             "if" => TokenType::If,
+                            "else" => TokenType::Else,
                             "true" => TokenType::True,
                             "false" => TokenType::False,
                             "nil" => TokenType::Nil,
@@ -39,9 +40,9 @@ pub fn lexer(mut buffer : impl LookaheadBuffer<char>) -> Vec<Token> { // please 
                             "or" => TokenType::Or,
                             "not" => TokenType::Not,
                             "let" => TokenType::Let,
-                            "print" => TokenType::Print,
                             "global" => TokenType::Global,
                             "debugger" => TokenType::Debugger,
+                            "fun" => TokenType::Fun,
                             _ => { TokenType::Literal(Literal::Ident(idb)) }
                         }, Span::new(ident_start, buffer.get_head())));
                     }
@@ -133,7 +134,7 @@ pub fn lexer(mut buffer : impl LookaheadBuffer<char>) -> Vec<Token> { // please 
                                 output.push(Token::new(TokenType::Colon, Span::new(span_start, span_start)));
                             }
                             '@' => {
-                                output.push(Token::new(TokenType::At, Span::new(span_start, span_start)));
+                                output.push(Token::new(TokenType::Fun, Span::new(span_start, span_start)));
                             }
                             '+' => {
                                 match buffer.peek() {
@@ -173,6 +174,9 @@ pub fn lexer(mut buffer : impl LookaheadBuffer<char>) -> Vec<Token> { // please 
                                         output.push(Token::new(TokenType::Minus, Span::new(span_start, span_start)));
                                     }
                                 }
+                            }
+                            '%' => {
+                                output.push(Token::new(TokenType::Modulo, Span::new(span_start, buffer.get_head())));
                             }
                             '*' => {
                                 if let Some('=') = buffer.peek() {

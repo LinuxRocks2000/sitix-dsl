@@ -1,27 +1,26 @@
 // see grammar.bnf
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SitixExpression {
     Block(Block),
     Text(String)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Closing { // why have this? because eventually we'll want more complicated closing semantics
     Slash // the normal [/]
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Block {
     pub inner : Vec<Statement>,
     pub tail : Option<Statement>
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Statement {
     Expression(Box<Expression>), // a statement that does nothing but evaluate a tail-expression
-    Print(Box<Expression>),
     LetAssign(String, Box<Expression>),
     GlobalAssign(String, Box<Expression>),
     Debugger
@@ -30,7 +29,7 @@ pub enum Statement {
 
 pub use crate::utility::Literal;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expression {
     Literal(Literal),
     Unary(Unary),
@@ -45,16 +44,21 @@ pub enum Expression {
     False,
     Nil,
     VariableAccess(String),
-    Assignment(Box<Expression>, Box<Expression>)
+    Assignment(Box<Expression>, Box<Expression>),
+    IfBranch(Box<Expression>, Box<Expression>, Option<Box<Expression>>), // condition, true-branch, false-branch
+    Table(Vec<Expression>),
+    While(Box<Expression>, Box<Expression>),
+    Call(Box<Expression>, Vec<Expression>),
+    Function(Vec<String>, Box<Expression>)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Unary {
     Negative(Box<Expression>),
     Not(Box<Expression>)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Binary {
     Equals(Box<Expression>, Box<Expression>),
     Nequals(Box<Expression>, Box<Expression>),
@@ -63,6 +67,7 @@ pub enum Binary {
     Sub(Box<Expression>, Box<Expression>),
     Mul(Box<Expression>, Box<Expression>),
     Div(Box<Expression>, Box<Expression>),
+    Mod(Box<Expression>, Box<Expression>),
 
     And(Box<Expression>, Box<Expression>),
     Or(Box<Expression>, Box<Expression>),
