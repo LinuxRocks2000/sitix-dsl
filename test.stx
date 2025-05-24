@@ -1,5 +1,9 @@
-[global posts = ["post one", "post two"]]
+[global posts = ["post one", label : "post two"]]
 
-[each posts -> post -]
-this is <b>[post]</b> in my tiny blog!
+[posts]
+
+[each posts -> i, post -]
+this is <b>[post]</b> indexed by [i]
 [/]
+
+TODO: implement sorting

@@ -114,7 +114,7 @@ impl Expression {
             },
             Self::Assignment(variable, value) => Self::Assignment(Box::new(variable.resolve(r)), Box::new(value.resolve(r))),
             Self::IfBranch(span, condition, truthy, falsey) => Self::IfBranch(span, Box::new(condition.resolve(r)), Box::new(truthy.resolve(r)), match falsey { Some(falsey) => Some(Box::new(falsey.resolve(r))), None => None }),
-            Self::Table(span, table) => Self::Table(span, table.into_iter().map(|v| v.resolve(r)).collect()),
+            Self::Table(span, table) => Self::Table(span, table.into_iter().map(|t| TableEntry { content : Box::new(t.content.resolve(r)), label : t.label }).collect()),
             Self::While(span, cond, body) => Self::While(span, Box::new(cond.resolve(r)), Box::new(body.resolve(r))),
             Self::Call(fun, args) => {
                 let fun = fun.resolve(r);
@@ -130,15 +130,23 @@ impl Expression {
                 r.close_scope();
                 Self::Function(span, args, Box::new(cont))
             },
-            Self::UnboundEach(span, cond, var, cont) => {
+            Self::UnboundEach(span, cond, var, secondary_var, cont) => {
                 let cond = cond.resolve(r);
                 r.open_scope();
                 let var = r.create(var);
+                let autrevar = if let Some(s) = secondary_var {
+                    Some(r.create(s))
+                } else { None };
                 let cont = cont.resolve(r);
                 r.close_scope();
-                Self::Each(span, Box::new(cond), var, Box::new(cont))
+                if let Some(autrevar) = autrevar {
+                    Self::Each(span, Box::new(cond), autrevar, Some(var), Box::new(cont))
+                }
+                else {
+                    Self::Each(span, Box::new(cond), var, None, Box::new(cont))
+                }
             },
-            Self::Each(_, _, _, _) => panic!("unreachable")
+            Self::Each(_, _, _, _, _) => panic!("unreachable")
         }
     }
 }

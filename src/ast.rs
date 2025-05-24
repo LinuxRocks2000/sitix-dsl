@@ -46,13 +46,19 @@ pub enum Expression {
     VariableAccess(Span, usize), // a fully bound variable access
     Assignment(Box<Expression>, Box<Expression>),
     IfBranch(Span, Box<Expression>, Box<Expression>, Option<Box<Expression>>), // condition, true-branch, false-branch
-    Table(Span, Vec<Expression>),
+    Table(Span, Vec<TableEntry>),
     While(Span, Box<Expression>, Box<Expression>),
-    UnboundEach(Span, Box<Expression>, String, Box<Expression>),
-    Each(Span, Box<Expression>, usize, Box<Expression>),
+    UnboundEach(Span, Box<Expression>, String, Option<String>, Box<Expression>),
+    Each(Span, Box<Expression>, usize, Option<usize>, Box<Expression>),
     Call(Box<Expression>, Vec<Expression>),
     UnboundFunction(Span, Vec<(String, Span)>, Box<Expression>),
     Function(Span, Vec<(usize, Span)>, Box<Expression>)
+}
+
+#[derive(Debug, Clone)]
+pub struct TableEntry {
+    pub content : Box<Expression>,
+    pub label : Option<String>
 }
 
 #[derive(Debug, Clone)]

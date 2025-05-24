@@ -35,7 +35,9 @@ arguments -> expression ( "," expression )* ;
 
 primary -> NUMBER | STRING | "true" | "false" | nil |
 	( "(" expression ")" ) | ( "{" block "}" ) | IDENTIFIER |
-	if | ("[" (expression ",")* expression? "]") | ( "while" expression expression ) |
-	( "fun" "(" IDENT? ( "," IDENT )* ")" expression ) | ( "each" expression "->" IDENT expression )
+	if | ("[" (table_entry ",")* table_entry? "]") | ( "while" expression expression ) |
+	( "fun" "(" IDENT? ( "," IDENT )* ")" expression ) | ( "each" expression ( "," expression )? "->" IDENT expression )
+
+table_entry -> expression | (IDENT ":" expression)
 
 if -> "if" expression expression ("else" expression)?

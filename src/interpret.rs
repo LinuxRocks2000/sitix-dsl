@@ -39,7 +39,17 @@ pub enum Data { // data is the *interpreter's* idea of Sitix data.
     Sitix(String), // this is a fairly magical high-level builtin type. it is the result of evaluating
                    // a SitixExpression.
                    // TODO: handle properties (this should eventually be (String, HashMap<String, Data>), once we've implemented that)
-    Table(Vec<Data>,), // TODO: make tables what they're supposed to be (a HashMap<Data, Data> that also acts like a Vec indexed by Data::Numbers)
+    Table(HashMap<usize, Data>, HashMap<String, Data>), // Is This Stupid, Or What?
+                                             // essentially: can't easily hash f64, don't want to
+                                             // use a Key enum with downcasts from f64 to u64,
+                                             // hence: tables are two hashmaps, one from usize and one
+                                             // from String. Dumb 'Nuff 4 Ya?
+                                             // and yes, floats *are* rounded for indexing.
+                                             // heh.
+                                             // heh heh.
+                                             // HAHAHAHAHAHAHAHAHAHAHA.
+                                             // *ahem*, sorry, just remembering that time I philosophized
+                                             // about making a language better than JavaScript
     Function(SitixFunction)
 }
 
@@ -52,7 +62,7 @@ impl ToString for Data {
             Self::String(s) => s.clone(),
             Self::Sitix(s) => s.clone(),
             Self::VariableHandle(u) => format!("variable handle {}", u),
-            Self::Table(t) => format!("{:?}", t),
+            Self::Table(t, p) => format!("{:?} + {:?}", t, p),
             Self::Function(_) => format!("<function>")
         }
     }
@@ -87,9 +97,9 @@ impl Data {
         }
     }
 
-    pub fn force_table(self) -> SitixPartialResult<Vec<Data>> {
-        if let Self::Table(data) = self {
-            Ok(data)
+    pub fn force_table(self) -> SitixPartialResult<(HashMap<usize, Data>, HashMap<String, Data>)> {
+        if let Self::Table(int_data, string_data) = self {
+            Ok((int_data, string_data))
         }
         else {
             Err(PartialError::invalid_type("function", self.typename()))
@@ -104,7 +114,7 @@ impl Data {
             Self::String(_) => "string",
             Self::Sitix(_) => "text",
             Self::VariableHandle(_) => "reference",
-            Self::Table(_) => "table",
+            Self::Table(_, _) => "table",
             Self::Function(_) => "function"
         }.to_string()
     }
@@ -287,11 +297,21 @@ impl Expression {
                 }
             },
             Self::Table(_, table) => {
-                let mut out = vec![];
-                for expr in table {
-                    out.push(expr.interpret(i)?);
+                let mut int_out = HashMap::new();
+                let mut string_out = HashMap::new();
+                let mut current_index = 0;
+                for entry in table {
+                    let expr = entry.content.interpret(i)?;
+                    let expr = i.deref(expr).map_err(|e| e.weld(entry.content.blame()))?;
+                    if let Some(label) = &entry.label {
+                        string_out.insert(label.clone(), expr);
+                    }
+                    else {
+                        int_out.insert(current_index, expr);
+                        current_index += 1;
+                    }
                 }
-                Ok(Data::Table(out))
+                Ok(Data::Table(int_out, string_out))
             },
             Self::While(_, cond, body) => {
                 let mut out = String::new();
@@ -336,13 +356,25 @@ impl Expression {
             Self::Function(_, args, contents) => {
                 Ok(Data::Function(SitixFunction::UserDefined(args.clone(), contents.clone())))
             },
-            Self::Each(span, cond, var, body) => {
+            Self::Each(span, cond, var, second_var, body) => {
                 let mut out = String::new();
                 let array = cond.interpret(i)?;
                 let array = i.deref(array).map_err(|e| e.weld(span.clone()))?;
-                let array = array.force_table().map_err(|e| e.weld(span.clone()))?;
-                for item in array {
-                    i.create(*var, item);
+                let (int_map, string_map) = array.force_table().map_err(|e| e.weld(span.clone()))?;
+                for (index, item) in &int_map {
+                    i.create(*var, item.clone());
+                    if let Some(v) = second_var {
+                        i.create(*v, Data::Number(*index as f64));
+                    }
+                    let expr_out = body.interpret(i)?;
+                    let expr_out = i.deref(expr_out).map_err(|e| e.weld(body.blame()))?;
+                    out += &expr_out.to_string();
+                }
+                for (index, item) in &string_map {
+                    i.create(*var, item.clone());
+                    if let Some(v) = second_var {
+                        i.create(*v, Data::String(index.clone()));
+                    }
                     let expr_out = body.interpret(i)?;
                     let expr_out = i.deref(expr_out).map_err(|e| e.weld(body.blame()))?;
                     out += &expr_out.to_string();

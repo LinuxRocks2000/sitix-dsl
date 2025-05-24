@@ -71,6 +71,26 @@ impl TokenReader {
 
 
 impl crate::inflate::SitixTree {
+    fn parse_table_entry(&mut self) -> SitixResult<TableEntry> {
+        let expr = self.parse_expression()?;
+        if let Expression::UnboundVariableAccess(_, name) = &expr {
+            if let Ok(tok) = self.content.peek() {
+                if let TokenType::Colon = tok.tp {
+                    self.content.next()?;
+                    let expr = self.parse_expression()?;
+                    return Ok(TableEntry {
+                        content : Box::new(expr),
+                        label : Some(name.clone())
+                    });
+                }
+            }
+        }
+        Ok(TableEntry {
+            content : Box::new(expr),
+            label : None
+        })
+    }
+
     fn parse_primary(&mut self) -> SitixResult<Expression> {
         if let Ok(tok) = self.content.next() {
             Ok(match tok.tp {
@@ -96,7 +116,7 @@ impl crate::inflate::SitixTree {
                         if let TokenType::RightBracket = self.content.peek()?.tp {
                             break;
                         }
-                        table.push(self.parse_expression()?);
+                        table.push(self.parse_table_entry()?);
                         let tok = self.content.next()?;
                         match tok.tp { // TODO: figure out a more ergonomic way to write this (maybe a .check() function?)
                             TokenType::RightBracket => {
@@ -148,8 +168,18 @@ impl crate::inflate::SitixTree {
                     self.content.pcheck(TokenType::DashTo)?;
                     let ident = self.content.next()?;
                     if let TokenType::Literal(Literal::Ident(ident)) = ident.tp {
+                        let secondary_ident = if let TokenType::Comma = self.content.peek()?.tp {
+                            self.content.next();
+                            let i = self.content.next()?;
+                            if let TokenType::Literal(Literal::Ident(i)) = i.tp {
+                                Some(i)
+                            }
+                            else {
+                                return Err(Error::expected_abstract("identifier", i.span));
+                            }
+                        } else { None };
                         let eval_expression = self.parse_expression()?;
-                        Expression::UnboundEach(tok.span, Box::new(array_expression), ident, Box::new(eval_expression))
+                        Expression::UnboundEach(tok.span, Box::new(array_expression), ident, secondary_ident, Box::new(eval_expression))
                     }
                     else {
                         return Err(Error::expected_abstract("identifier", ident.span));
