@@ -1,28 +1,81 @@
 // contains the lexer function
-use crate::lookahead::*;
 use crate::utility::*;
+use crate::error::{ SitixResult, Error };
 
 
-pub fn lexer(mut buffer : impl LookaheadBuffer<char>) -> Vec<Token> { // please for the love of god never touch this
+pub struct FileReader {
+    name : String,
+    span_start : usize,
+    current_byte : usize,
+    file : Vec<char> // todo: use a nice streaming solution for this
+}
+
+
+impl FileReader {
+    pub fn open(name : impl ToString) -> FileReader {
+        FileReader {
+            name : name.to_string(),
+            span_start : 0,
+            current_byte : 0,
+            file : std::fs::read_to_string(name.to_string()).unwrap().chars().collect()
+        }
+    }
+
+    fn next(&mut self) -> SitixResult<char> {
+        self.current_byte += 1;
+        self.file.get(self.current_byte - 1).ok_or(Error::unexpected_eof(self.top_span())).cloned()
+    }
+
+    fn peek(&self) -> SitixResult<char> {
+        self.file.get(self.current_byte).ok_or(Error::unexpected_eof(self.top_span())).cloned()
+    }
+
+    fn top_span(&self) -> Span { // return the span of the single byte at the top of this reader
+        Span::new(self.current_byte, self.current_byte, self.name.clone())
+    }
+
+    fn open_span(&mut self) {
+        self.span_start = self.current_byte;
+    }
+
+    fn get_span(&self) -> Span {
+        Span::new(self.span_start, self.current_byte, self.name.clone())
+    }
+
+    fn skip(&mut self, condition : impl Fn(char) -> bool) -> SitixResult<()> {
+        while let Ok(c) = self.peek() {
+            if condition(c) {
+                self.next()?;
+            }
+            else {
+                break;
+            }
+        }
+        Ok(())
+    }
+}
+
+
+pub fn lexer(mut buffer : FileReader) -> SitixResult<Vec<Token>> { // please for the love of god never touch this
+                                                                   // [slightly later] it... it had to be touched. my... my eyes...
     let mut output = vec![];
-    while let Some(c) = buffer.peek() {
-        let span_start = buffer.get_head();
+    while let Ok(c) = buffer.peek() {
+        buffer.open_span();
         match c {
             '[' => {
-                buffer.next();
-                output.push(Token::new(TokenType::BlockOpen, Span::new(span_start, span_start)));
+                buffer.next()?;
+                output.push(Token::new(TokenType::BlockOpen, buffer.get_span()));
                 let mut close_level = 1; // count open-brackets and close-brackets. if it reaches 0, we need to back into text buffering mode
-                buffer.skip(char::is_whitespace);
-                'inner_expression : while let Some(c) = buffer.next() {
-                    let span_start = buffer.get_head();
+                buffer.skip(char::is_whitespace)?;
+                'inner_expression : while let Ok(c) = buffer.next() {
+                    buffer.open_span();
                     if c.is_alphabetic() { // parse an ident
-                        let ident_start = buffer.get_head();
                         let mut idb = String::new();
                         idb.push(c);
-                        while let Some(c) = buffer.peek() {
+                        while let Ok(c) = buffer.peek() {
                             if c.is_alphanumeric() || c == '_' {
                                 idb.push(c);
-                                buffer.next();
+                                buffer.next()?;
                             }
                             else {
                                 break;
@@ -44,24 +97,24 @@ pub fn lexer(mut buffer : impl LookaheadBuffer<char>) -> Vec<Token> { // please 
                             "debugger" => TokenType::Debugger,
                             "fun" => TokenType::Fun,
                             _ => { TokenType::Literal(Literal::Ident(idb)) }
-                        }, Span::new(ident_start, buffer.get_head())));
+                        }, buffer.get_span()));
                     }
-                    else if c.is_numeric() {
-                        let mut num_buf = c.to_digit(10).unwrap() as f64;
-                        while let Some(c) = buffer.peek() {
-                            if c.is_numeric() {
+                    else if let Some(c) = c.to_digit(10) {
+                        let mut num_buf = c as f64;
+                        while let Ok(c) = buffer.peek() {
+                            if let Some(c) = c.to_digit(10) {
                                 num_buf *= 10.0;
-                                num_buf += c.to_digit(10).unwrap() as f64;
-                                buffer.next();
+                                num_buf += c as f64;
+                                buffer.next()?;
                             }
                             else if c == '.' {
-                                buffer.next();
+                                buffer.next()?;
                                 let mut pow = 0.1;
-                                while let Some(c) = buffer.peek() {
-                                    if c.is_numeric() {
-                                        num_buf += pow * c.to_digit(10).unwrap() as f64;
+                                while let Ok(c) = buffer.peek() {
+                                    if let Some(c) = c.to_digit(10) {
+                                        num_buf += pow * c as f64;
                                         pow *= 0.1;
-                                        buffer.next();
+                                        buffer.next()?;
                                     }
                                     else {
                                         break;
@@ -72,20 +125,19 @@ pub fn lexer(mut buffer : impl LookaheadBuffer<char>) -> Vec<Token> { // please 
                                 break;
                             }
                         }
-                        output.push(Token::new(TokenType::Literal(Literal::Number(num_buf)), Span::new(span_start, buffer.get_head())));
+                        output.push(Token::new(TokenType::Literal(Literal::Number(num_buf)), buffer.get_span()));
                     }
                     else {
                         match c {
                             '"' => {
                                 let mut str_buf = String::new();
-                                while let Some(c) = buffer.next() {
+                                while let Ok(c) = buffer.next() {
                                     if c == '\\' {
-                                        str_buf.push(match buffer.next() {
-                                            Some('n') => '\n',
-                                            Some('r') => '\r',
-                                            Some('0') => '\0',
-                                            Some(c) => c,
-                                            None => { panic!("unexpected EOF"); }
+                                        str_buf.push(match buffer.next()? {
+                                            'n' => '\n',
+                                            'r' => '\r',
+                                            '0' => '\0',
+                                            c => c
                                         });
                                     }
                                     else if c == '"' {
@@ -95,170 +147,170 @@ pub fn lexer(mut buffer : impl LookaheadBuffer<char>) -> Vec<Token> { // please 
                                         str_buf.push(c);
                                     }
                                 }
-                                output.push(Token::new(TokenType::Literal(Literal::String(str_buf)), Span::new(span_start, buffer.get_head())));
+                                output.push(Token::new(TokenType::Literal(Literal::String(str_buf)), buffer.get_span()));
                             }
                             '[' => {
                                 close_level += 1;
-                                output.push(Token::new(TokenType::LeftBracket, Span::new(span_start, span_start)));
+                                output.push(Token::new(TokenType::LeftBracket, buffer.get_span()));
                             }
                             ']' => {
                                 close_level -= 1;
                                 if close_level == 0 {
-                                    output.push(Token::new(TokenType::BlockClose(false), Span::new(span_start, span_start)));
+                                    output.push(Token::new(TokenType::BlockClose(false), buffer.get_span()));
                                     break 'inner_expression;
                                 }
-                                output.push(Token::new(TokenType::RightBracket, Span::new(span_start, span_start)));
+                                output.push(Token::new(TokenType::RightBracket, buffer.get_span()));
                             }
                             '{' => {
-                                output.push(Token::new(TokenType::LeftBrace, Span::new(span_start, span_start)));
+                                output.push(Token::new(TokenType::LeftBrace, buffer.get_span()));
                             }
                             '}' => {
-                                output.push(Token::new(TokenType::RightBrace, Span::new(span_start, span_start)));
+                                output.push(Token::new(TokenType::RightBrace, buffer.get_span()));
                             }
                             '(' => {
-                                output.push(Token::new(TokenType::LeftParen, Span::new(span_start, span_start)));
+                                output.push(Token::new(TokenType::LeftParen, buffer.get_span()));
                             }
                             ')' => {
-                                output.push(Token::new(TokenType::RightParen, Span::new(span_start, span_start)));
+                                output.push(Token::new(TokenType::RightParen, buffer.get_span()));
                             }
                             '.' => {
-                                output.push(Token::new(TokenType::Dot, Span::new(span_start, span_start)));
+                                output.push(Token::new(TokenType::Dot, buffer.get_span()));
                             }
                             ',' => {
-                                output.push(Token::new(TokenType::Comma, Span::new(span_start, span_start)));
+                                output.push(Token::new(TokenType::Comma, buffer.get_span()));
                             }
                             ';' => {
-                                output.push(Token::new(TokenType::Semicolon, Span::new(span_start, span_start)));
+                                output.push(Token::new(TokenType::Semicolon, buffer.get_span()));
                             }
                             ':' => {
-                                output.push(Token::new(TokenType::Colon, Span::new(span_start, span_start)));
+                                output.push(Token::new(TokenType::Colon, buffer.get_span()));
                             }
                             '@' => {
-                                output.push(Token::new(TokenType::Fun, Span::new(span_start, span_start)));
+                                output.push(Token::new(TokenType::Fun, buffer.get_span()));
                             }
                             '+' => {
-                                match buffer.peek() {
-                                    Some('=') => {
-                                        buffer.next();
-                                        output.push(Token::new(TokenType::PlusEq, Span::new(span_start, buffer.get_head())));
+                                match buffer.peek()? {
+                                    '=' => {
+                                        buffer.next()?;
+                                        output.push(Token::new(TokenType::PlusEq, buffer.get_span()));
                                     }
-                                    Some('+') => {
-                                        buffer.next();
-                                        output.push(Token::new(TokenType::PlusPlus, Span::new(span_start, buffer.get_head())));
+                                    '+' => {
+                                        buffer.next()?;
+                                        output.push(Token::new(TokenType::PlusPlus, buffer.get_span()));
                                     }
                                     _ => {
-                                        output.push(Token::new(TokenType::Plus, Span::new(span_start, span_start)));
+                                        output.push(Token::new(TokenType::Plus, buffer.get_span()));
                                     }
                                 }
                             }
                             '-' => {
-                                match buffer.peek() {
-                                    Some('=') => {
-                                        buffer.next();
-                                        output.push(Token::new(TokenType::MinusEq, Span::new(span_start, buffer.get_head())));
+                                match buffer.peek()? {
+                                    '=' => {
+                                        buffer.next()?;
+                                        output.push(Token::new(TokenType::MinusEq, buffer.get_span()));
                                     }
-                                    Some('-') => {
-                                        buffer.next();
-                                        output.push(Token::new(TokenType::MinusMinus, Span::new(span_start, buffer.get_head())));
+                                    '-' => {
+                                        buffer.next()?;
+                                        output.push(Token::new(TokenType::MinusMinus, buffer.get_span()));
                                     }
-                                    Some('>') => {
-                                        buffer.next();
-                                        output.push(Token::new(TokenType::DashTo, Span::new(span_start, buffer.get_head())));
+                                    '>' => {
+                                        buffer.next()?;
+                                        output.push(Token::new(TokenType::DashTo, buffer.get_span()));
                                     }
-                                    Some(']') => {
-                                        buffer.next();
-                                        output.push(Token::new(TokenType::BlockClose(true), Span::new(span_start, buffer.get_head())));
+                                    ']' => {
+                                        buffer.next()?;
+                                        output.push(Token::new(TokenType::BlockClose(true), buffer.get_span()));
                                         break 'inner_expression;
                                     }
                                     _ => {
-                                        output.push(Token::new(TokenType::Minus, Span::new(span_start, span_start)));
+                                        output.push(Token::new(TokenType::Minus, buffer.get_span()));
                                     }
                                 }
                             }
                             '%' => {
-                                output.push(Token::new(TokenType::Modulo, Span::new(span_start, buffer.get_head())));
+                                output.push(Token::new(TokenType::Modulo, buffer.get_span()));
                             }
                             '*' => {
-                                if let Some('=') = buffer.peek() {
-                                    buffer.next();
-                                    output.push(Token::new(TokenType::StarEq, Span::new(span_start, buffer.get_head())));
+                                if let Ok('=') = buffer.peek() {
+                                    buffer.next()?;
+                                    output.push(Token::new(TokenType::StarEq, buffer.get_span()));
                                 }
                                 else {
-                                    output.push(Token::new(TokenType::Star, Span::new(span_start, span_start)));
+                                    output.push(Token::new(TokenType::Star, buffer.get_span()));
                                 }
                             }
                             '/' => {
-                                match buffer.peek() {
-                                    Some('=') => {
-                                        buffer.next();
-                                        output.push(Token::new(TokenType::SlashEq, Span::new(span_start, buffer.get_head())));
+                                match buffer.peek()? {
+                                    '=' => {
+                                        buffer.next()?;
+                                        output.push(Token::new(TokenType::SlashEq, buffer.get_span()));
                                     }
-                                    Some('*') => {
+                                    '*' => {
                                         // it's a comment, skoob!
-                                        buffer.next();
-                                        'comment : while let Some(c) = buffer.next() {
+                                        buffer.next()?;
+                                        'comment : while let Ok(c) = buffer.next() {
                                             if c == '*' {
-                                                if let Some('/') = buffer.peek() {
-                                                    buffer.next();
+                                                if let Ok('/') = buffer.peek() {
+                                                    buffer.next()?;
                                                     break 'comment;
                                                 }
                                             }
                                         }
                                     }
                                     _ => {
-                                        output.push(Token::new(TokenType::Slash, Span::new(span_start, span_start)));
+                                        output.push(Token::new(TokenType::Slash, buffer.get_span()));
                                     }
                                 }
                             }
                             '=' => {
-                                if let Some('=') = buffer.peek() {
-                                    buffer.next();
-                                    output.push(Token::new(TokenType::EqEq, Span::new(span_start, buffer.get_head())));
+                                if buffer.peek()? == '=' {
+                                    buffer.next()?;
+                                    output.push(Token::new(TokenType::EqEq, buffer.get_span()));
                                 }
                                 else {
-                                    output.push(Token::new(TokenType::Eq, Span::new(span_start, span_start)));
+                                    output.push(Token::new(TokenType::Eq, buffer.get_span()));
                                 }
                             }
                             '!' => {
-                                if let Some('=') = buffer.peek() {
-                                    buffer.next();
-                                    output.push(Token::new(TokenType::Neq, Span::new(span_start, buffer.get_head())));
+                                if buffer.peek()? == '=' {
+                                    buffer.next()?;
+                                    output.push(Token::new(TokenType::Neq, buffer.get_span()));
                                 }
                                 else {
-                                    output.push(Token::new(TokenType::Not, Span::new(span_start, span_start)));
+                                    output.push(Token::new(TokenType::Not, buffer.get_span()));
                                 }
                             }
                             '>' => {
-                                if let Some('=') = buffer.peek() {
-                                    buffer.next();
-                                    output.push(Token::new(TokenType::Gte, Span::new(span_start, buffer.get_head())));
+                                if buffer.peek()? == '=' {
+                                    buffer.next()?;
+                                    output.push(Token::new(TokenType::Gte, buffer.get_span()));
                                 }
                                 else {
-                                    output.push(Token::new(TokenType::Gt, Span::new(span_start, span_start)));
+                                    output.push(Token::new(TokenType::Gt, buffer.get_span()));
                                 }
                             }
                             '<' => {
-                                if let Some('=') = buffer.peek() {
-                                    buffer.next();
-                                    output.push(Token::new(TokenType::Lte, Span::new(span_start, buffer.get_head())));
+                                if buffer.peek()? == '=' {
+                                    buffer.next()?;
+                                    output.push(Token::new(TokenType::Lte, buffer.get_span()));
                                 }
                                 else {
-                                    output.push(Token::new(TokenType::Lt, Span::new(span_start, span_start)));
+                                    output.push(Token::new(TokenType::Lt, buffer.get_span()));
                                 }
                             }
-                            _ => { panic!("syntax error! unexpected character {} (todo: better error handling)", c); }
+                            _ => { return Err(Error::unexpected_char(c, buffer.get_span())); }
                         }
                     }
-                    buffer.skip(char::is_whitespace);
+                    buffer.skip(char::is_whitespace)?;
                 }
             }
             _ => {
                 let mut buf = String::new();
-                while let Some(c) = buffer.peek() {
+                while let Ok(c) = buffer.peek() {
                     if c == '\\' {
-                        buffer.next();
-                        if let Some('[') = buffer.peek() {
-                            buffer.next();
+                        buffer.next()?;
+                        if let Ok('[') = buffer.peek() {
+                            buffer.next()?;
                             buf.push('[');
                         }
                         else {
@@ -270,15 +322,15 @@ pub fn lexer(mut buffer : impl LookaheadBuffer<char>) -> Vec<Token> { // please 
                     }
                     else {
                         buf.push(c);
-                        buffer.next();
+                        buffer.next()?;
                     }
                 }
                 if buf.len() > 0 {
-                    output.push(Token::new(TokenType::Literal(Literal::Text(buf)), Span::new(span_start, buffer.get_head())));
+                    output.push(Token::new(TokenType::Literal(Literal::Text(buf)), buffer.get_span()));
                 }
             }
         }
     }
-    output
+    Ok(output)
 }
 

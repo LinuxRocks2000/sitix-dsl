@@ -1,7 +1,5 @@
-[
-	global recursion = @(num) {
-		print("num is " + num);
-		if num != 0 recursion(num - 1);
-	};
-	recursion(3);
-]
+[global posts = ["post one", "post two"]]
+
+[each posts -> post -]
+this is <b>[post]</b> in my tiny blog!
+[/]

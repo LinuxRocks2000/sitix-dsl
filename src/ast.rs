@@ -1,29 +1,28 @@
 // see grammar.bnf
+use crate::utility::Span;
+
 
 #[derive(Debug, Clone)]
 pub enum SitixExpression {
     Block(Block),
-    Text(String)
-}
-
-#[derive(Debug, Clone)]
-pub enum Closing { // why have this? because eventually we'll want more complicated closing semantics
-    Slash // the normal [/]
+    Text(String, Span)
 }
 
 #[derive(Debug, Clone)]
 pub struct Block {
     pub inner : Vec<Statement>,
-    pub tail : Option<Statement>
+    pub tail : Option<Statement>,
+    pub span : Span
 }
 
 
 #[derive(Debug, Clone)]
 pub enum Statement {
     Expression(Box<Expression>), // a statement that does nothing but evaluate a tail-expression
-    LetAssign(String, Box<Expression>),
-    GlobalAssign(String, Box<Expression>),
-    Debugger
+    UnboundLetAssign(Span, String, Box<Expression>), // unbound: needs to be bound by resolver
+    UnboundGlobalAssign(Span, String, Box<Expression>),
+    Assign(Span, usize, Box<Expression>), // once bound, there's no useful distinction between `let` and `global`, so we only need one Assign
+    Debugger(Span)
 }
 
 
@@ -31,7 +30,7 @@ pub use crate::utility::Literal;
 
 #[derive(Debug, Clone)]
 pub enum Expression {
-    Literal(Literal),
+    Literal(Span, Literal),
     Unary(Unary),
     Binary(Binary),
     Grouping(Box<Expression>),
@@ -40,22 +39,26 @@ pub enum Expression {
     // that implicitly casts down to a String (equal to the concatenation of the stringifications
     // of every sitixexpression contained) and contains a number of properties (such as __filename__ for a file),
     // some of which are exports.
-    True,
-    False,
-    Nil,
-    VariableAccess(String),
+    True(Span),
+    False(Span),
+    Nil(Span),
+    UnboundVariableAccess(Span, String), // a variable access that has not been bound by the resolver
+    VariableAccess(Span, usize), // a fully bound variable access
     Assignment(Box<Expression>, Box<Expression>),
-    IfBranch(Box<Expression>, Box<Expression>, Option<Box<Expression>>), // condition, true-branch, false-branch
-    Table(Vec<Expression>),
-    While(Box<Expression>, Box<Expression>),
+    IfBranch(Span, Box<Expression>, Box<Expression>, Option<Box<Expression>>), // condition, true-branch, false-branch
+    Table(Span, Vec<Expression>),
+    While(Span, Box<Expression>, Box<Expression>),
+    UnboundEach(Span, Box<Expression>, String, Box<Expression>),
+    Each(Span, Box<Expression>, usize, Box<Expression>),
     Call(Box<Expression>, Vec<Expression>),
-    Function(Vec<String>, Box<Expression>)
+    UnboundFunction(Span, Vec<(String, Span)>, Box<Expression>),
+    Function(Span, Vec<(usize, Span)>, Box<Expression>)
 }
 
 #[derive(Debug, Clone)]
 pub enum Unary {
-    Negative(Box<Expression>),
-    Not(Box<Expression>)
+    Negative(Span, Box<Expression>),
+    Not(Span, Box<Expression>)
 }
 
 #[derive(Debug, Clone)]

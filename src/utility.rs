@@ -26,14 +26,47 @@ pub enum TokenType {
 
 #[derive(Debug, Clone)]
 pub struct Span {
-    start_char : usize,
-    end_char : usize
+    pub start_char : usize,
+    pub end_char : usize,
+    pub filename : String
 }
 
 impl Span {
-    pub fn new(start_char : usize, end_char : usize) -> Self {
+    pub fn new(start_char : usize, end_char : usize, filename : String) -> Self {
         Self {
-            start_char, end_char
+            start_char, end_char, filename
+        }
+    }
+
+    pub fn identity() -> Self {
+        Self::new(0, 0, "unknown_file".to_string())
+    }
+
+    pub fn get_line_col(&self) -> (usize, usize) {
+        let mut line = 1;
+        let mut col = 0;
+        let file = match std::fs::read_to_string(&self.filename) { Ok(file) => file, Err(_) => {return (0, 0);}};
+        let iter = file.chars();
+        let mut cnt = self.start_char;
+        for ch in iter {
+            cnt -= 1;
+            if ch == '\n' {
+                col = 0;
+                line += 1;
+            }
+            if cnt == 0 {
+                break;
+            }
+            col += 1;
+        }
+        (line, col)
+    }
+
+    pub fn merge(self, other : Span) -> Span {
+        Span {
+            filename : self.filename,
+            start_char : self.start_char.min(other.start_char),
+            end_char : self.end_char.max(other.end_char)
         }
     }
 }

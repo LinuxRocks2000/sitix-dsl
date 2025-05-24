@@ -1,14 +1,17 @@
-mod lookahead;
-use lookahead::*;
 mod utility;
 mod lexer;
-use lexer::*;
 mod ast;
 mod parse;
 mod inflate;
 use inflate::*;
 mod interpret;
 use interpret::*;
+mod resolve;
+use resolve::*;
+mod ffi;
+use ffi::*;
+mod error;
+use error::SitixResult;
 
 
 // parsing works in three stages.
@@ -29,30 +32,55 @@ use interpret::*;
     A novice sees but rubble on uneven ground; a master sees a recursive grammar assembling trees to challenge any tower!
 
     This recursively transforms the inflated layer into a proper syntax tree. At this point all Tokens have been consumed and
-    replaced with Statements, Expressions, and other such nastiness; we can convert to bytecode now, or just tree-walk interpret. Whew!
+    replaced with Statements, Expressions, and other such nastiness.
+   Stage 4: Lexical Binding
+    A novice, on a hike through the forest, passed through a clearing. Several minutes later, after much twisting and turning, he was
+    surprised to walk through a clearing exactly like it. He brought this news to a master, thinking himself the discoverer of some
+    great mystery- "who is to say, Wise Master, whether I walked through the same clearing, or a different one? Is it not silly
+    to presume that the distinction is meaningful?"
+    The master did not reply, but conjured a great wind, which brought many sheets of numbered paper to fly through the forest and alight
+    in the enigmatic clearing. With this, the novice was enlightened.
+
+    There are a bunch of edge cases where the obvious lexical meaning of a variable is quite different from what the
+    interpreter actually sees. The binding step discards identifiers and ensures that every variable creation and
+    access are uniquely indexable by the interpreter - simply by assigning each variable a unique number.
 */
 
-fn parse_file(fname : impl AsRef<str>) {
-    let contents = std::fs::read_to_string(fname.as_ref()).unwrap();
-    let iter = contents.chars();
-    let buffer = SimpleLLBuffer::new(iter);
-    let tokens = lexer(buffer);
-    let mut token_buffer = SimpleLLBuffer::new(tokens.into_iter());
+use std::sync::Arc;
 
-    let mut inflated = SitixTree::root(&mut token_buffer).unwrap(); // the data structure here is significantly more useful to the final stage than a raw token stream
 
-    let ast = inflated.parse().unwrap();
+fn parse_file(fname : impl ToString) -> SitixResult<String> {
+    let file = lexer::FileReader::open(fname);
+    let tokens = lexer::lexer(file)?;
+
+    println!("tokens: {:?}", tokens);
+
+    let mut token_buffer = parse::TokenReader::new(tokens);
+    let mut inflated = SitixTree::root(&mut token_buffer)?; // the data structure here is significantly more useful to the final stage than a raw token stream
+
+    println!("inflate: {:#?}", inflated);
+
+    let ast = inflated.parse()?;
 
     println!("ast: {:#?}", ast);
 
-    let mut interpreter = InterpreterState::new();
-    interpreter.load_standard_ffi();
-    println!("interpreter result: {}", ast.interpret(&mut interpreter).unwrap().to_string());
+    let mut ffi = ForeignFunctionInterface::new();
+    ffi.add_standard_api();
+    let ffi = Arc::new(ffi);
+
+    let mut resolver = ResolverState::new(ffi.clone());
+    let ast = ast.resolve(&mut resolver);
+
+    let mut interpreter = InterpreterState::new(ffi.clone());
+    Ok(ast.interpret(&mut interpreter).unwrap().to_string())
 }
 
 
 fn main() {
-    parse_file("test.stx");
+    println!("{}", match parse_file("test.stx") {
+        Err(e) => format!("{:?}", e),
+        Ok(s) => s
+    });
 }
 
 // 1061, 1.5, 762

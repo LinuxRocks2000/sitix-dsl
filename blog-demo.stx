@@ -1,0 +1,25 @@
+[global base_template = @(title, content) -]
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>[title]</title>
+	</head>
+	<body>
+		[content]
+	</body>
+</html>
+[/]
+
+[global post_template = @(title, author, date, content) base_template("Post | " + title) -]
+<h2>[title]</h2>
+<p>
+	<i>Written by [author] on [date]</i>
+</p>
+[content]
+[/]
+
+[post_template("test post", "pusheen", "2025-5-23") -]
+<p>
+	Hello, everyone! This is my first post written using the improved Sitix templating engine!
+</p>
+[/]
