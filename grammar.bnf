@@ -27,11 +27,13 @@ term -> factor ( ( "+" | "-" ) factor)*
 
 factor -> unary ( ( "*" | "/" | "%" ) unary)*
 
-unary -> ( "!" | "-" unary ) | call
+unary -> ( "!" | "-" unary ) | dotaccess
 
-call -> primary ( "(" arguments? ")" )* ;
+dotaccess -> call ("." IDENT ( "(" arguments? ")" ) )?
 
-arguments -> expression ( "," expression )* ;
+call -> primary ( "(" arguments? ")" )*
+
+arguments -> expression ( "," expression )*
 
 primary -> NUMBER | STRING | "true" | "false" | nil |
 	( "(" expression ")" ) | ( "{" block "}" ) | IDENTIFIER |

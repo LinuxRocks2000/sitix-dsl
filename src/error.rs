@@ -153,6 +153,13 @@ impl PartialError {
             reason : "Undefined symbol".to_string()
         }
     }
+
+    pub fn invalid_index(index : String) -> PartialError {
+        PartialError {
+            tp : "Runtime".to_string(),
+            reason : format!("Invalid index {}", index)
+        }
+    }
 }
 
 

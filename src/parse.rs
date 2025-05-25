@@ -72,21 +72,19 @@ impl TokenReader {
 
 impl crate::inflate::SitixTree {
     fn parse_table_entry(&mut self) -> SitixResult<TableEntry> {
-        let expr = self.parse_expression()?;
-        if let Expression::UnboundVariableAccess(_, name) = &expr {
-            if let Ok(tok) = self.content.peek() {
-                if let TokenType::Colon = tok.tp {
-                    self.content.next()?;
-                    let expr = self.parse_expression()?;
-                    return Ok(TableEntry {
-                        content : Box::new(expr),
-                        label : Some(name.clone())
-                    });
-                }
+        let labelish = self.parse_expression()?;
+        if let Ok(tok) = self.content.peek() {
+            if let TokenType::Colon = tok.tp {
+                self.content.next()?;
+                let expr = self.parse_expression()?;
+                return Ok(TableEntry {
+                    content : Box::new(expr),
+                    label : Some(Box::new(labelish))
+                });
             }
         }
         Ok(TableEntry {
-            content : Box::new(expr),
+            content : Box::new(labelish),
             label : None
         })
     }
@@ -168,15 +166,18 @@ impl crate::inflate::SitixTree {
                     self.content.pcheck(TokenType::DashTo)?;
                     let ident = self.content.next()?;
                     if let TokenType::Literal(Literal::Ident(ident)) = ident.tp {
-                        let secondary_ident = if let TokenType::Comma = self.content.peek()?.tp {
-                            self.content.next();
-                            let i = self.content.next()?;
-                            if let TokenType::Literal(Literal::Ident(i)) = i.tp {
-                                Some(i)
+                        let secondary_ident = if let Ok(tok) = self.content.peek() {
+                            if let TokenType::Comma = tok.tp {
+                                self.content.next()?;
+                                let i = self.content.next()?;
+                                if let TokenType::Literal(Literal::Ident(i)) = i.tp {
+                                    Some(i)
+                                }
+                                else {
+                                    return Err(Error::expected_abstract("identifier", i.span));
+                                }
                             }
-                            else {
-                                return Err(Error::expected_abstract("identifier", i.span));
-                            }
+                            else { None }
                         } else { None };
                         let eval_expression = self.parse_expression()?;
                         Expression::UnboundEach(tok.span, Box::new(array_expression), ident, secondary_ident, Box::new(eval_expression))
@@ -242,6 +243,36 @@ impl crate::inflate::SitixTree {
         Ok(out)
     }
 
+    fn parse_dotaccess(&mut self) -> SitixResult<Expression> {
+        let mut out = self.parse_call()?;
+        while let Ok(tok) = self.content.peek() {
+            if let TokenType::Dot = tok.tp {
+                self.content.next()?;
+                let id = self.content.next()?;
+                if let TokenType::Literal(Literal::Ident(ident)) = id.tp {
+                    out = Expression::DotAccess(Box::new(out), ident);
+                }
+                else {
+                    return Err(Error::expected_abstract("literal", id.span));
+                }
+            }
+            else if let TokenType::LeftParen = tok.tp {
+                self.content.next()?;
+                let mut args = self.parse_csl(TokenType::RightParen)?;
+                if let Err(_) = self.content.peek() {
+                    if self.children.len() > 0 {
+                        args.push(self.parse_expression()?);
+                    }
+                }
+                out = Expression::Call(Box::new(out), args);
+            }
+            else {
+                break;
+            }
+        }
+        Ok(out)
+    }
+
     fn parse_call(&mut self) -> SitixResult<Expression> {
         let lhs = self.parse_primary()?;
         if let Ok(tok) = self.content.peek() { // TODO: come up with a more ergonomic way to write this very common pattern
@@ -271,12 +302,12 @@ impl crate::inflate::SitixTree {
                     Expression::Unary(Unary::Negative(tok.span, Box::new(self.parse_unary()?)))
                 },
                 _ => {
-                    self.parse_call()?
+                    self.parse_dotaccess()?
                 }
             })
         }
         else {
-            self.parse_call()
+            self.parse_dotaccess()
         }
     }
 

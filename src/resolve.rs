@@ -49,6 +49,14 @@ impl ResolverState {
         }
         self.ffi.find(name)
     }
+
+    pub fn vomit(self) -> usize {
+        self.top_var
+    }
+
+    pub fn settop(&mut self, top : usize) {
+        self.top_var = top;
+    }
 }
 
 
@@ -84,11 +92,11 @@ impl Statement {
             Self::Expression(expr) => Self::Expression(Box::new(expr.resolve(r))),
             Self::UnboundLetAssign(tok, ident, expr) => {
                 let id = r.create(ident);
-                Self::Assign(tok, id, Box::new(expr.resolve(r)))
+                Self::Assign(tok, id, Box::new(expr.resolve(r)), None)
             },
             Self::UnboundGlobalAssign(tok, ident, expr) => {
-                let id = r.create_global(ident);
-                Self::Assign(tok, id, Box::new(expr.resolve(r)))
+                let id = r.create_global(ident.clone());
+                Self::Assign(tok, id, Box::new(expr.resolve(r)), Some(ident))
             },
             _ => self
         }
@@ -146,7 +154,8 @@ impl Expression {
                     Self::Each(span, Box::new(cond), var, None, Box::new(cont))
                 }
             },
-            Self::Each(_, _, _, _, _) => panic!("unreachable")
+            Self::Each(_, _, _, _, _) => panic!("unreachable"),
+            Self::DotAccess(expr, s) => Self::DotAccess(Box::new(expr.resolve(r)), s)
         }
     }
 }

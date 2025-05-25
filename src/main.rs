@@ -49,7 +49,7 @@ use error::SitixResult;
 use std::sync::Arc;
 
 
-fn parse_file(fname : impl ToString) -> SitixResult<String> {
+pub fn parse_file(fname : impl ToString) -> SitixResult<Data> {
     let file = lexer::FileReader::open(fname);
     let tokens = lexer::lexer(file)?;
 
@@ -71,15 +71,15 @@ fn parse_file(fname : impl ToString) -> SitixResult<String> {
     let mut resolver = ResolverState::new(ffi.clone());
     let ast = ast.resolve(&mut resolver);
 
-    let mut interpreter = InterpreterState::new(ffi.clone());
-    Ok(ast.interpret(&mut interpreter).unwrap().to_string())
+    let mut interpreter = InterpreterState::new(resolver, ffi.clone());
+    Ok(ast.interpret(&mut interpreter).unwrap())
 }
 
 
 fn main() {
     println!("{}", match parse_file("test.stx") {
         Err(e) => format!("{:?}", e),
-        Ok(s) => s
+        Ok(s) => s.to_string()
     });
 }
 

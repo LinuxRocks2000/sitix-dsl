@@ -2,6 +2,8 @@
 use std::collections::HashMap;
 use crate::interpret::{ Data, SitixFunction, InterpreterState };
 use crate::error::*;
+use std::sync::Arc;
+use crate::resolve::*;
 
 
 #[derive(Debug)]
@@ -57,6 +59,23 @@ impl ForeignFunctionInterface {
                 }
                 println!("");
                 Ok(Data::Nil)
+            }),
+            ("include".to_string(), &|i, args| {
+                let file = crate::lexer::FileReader::open(args[0].to_string());
+                let tokens = crate::lexer::lexer(file)?;
+                let mut token_buffer = crate::parse::TokenReader::new(tokens);
+                let mut inflated = crate::SitixTree::root(&mut token_buffer)?;
+                let ast = inflated.parse()?;
+                let mut ffi = ForeignFunctionInterface::new();
+                ffi.add_standard_api();
+                let ffi = Arc::new(ffi);
+                let mut resolver = ResolverState::new(ffi.clone());
+                resolver.settop(i.top_index);
+                let ast = ast.resolve(&mut resolver);
+                let mut interpreter = InterpreterState::new(resolver, ffi.clone());
+                let out = ast.interpret(&mut interpreter)?;
+                i.merge_symbols(&interpreter);
+                Ok(out)
             })
         ]);
     }

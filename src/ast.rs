@@ -21,7 +21,8 @@ pub enum Statement {
     Expression(Box<Expression>), // a statement that does nothing but evaluate a tail-expression
     UnboundLetAssign(Span, String, Box<Expression>), // unbound: needs to be bound by resolver
     UnboundGlobalAssign(Span, String, Box<Expression>),
-    Assign(Span, usize, Box<Expression>), // once bound, there's no useful distinction between `let` and `global`, so we only need one Assign
+    Assign(Span, usize, Box<Expression>, Option<String>), // once bound, there's no useful distinction between `let` and `global`, so we only need one Assign
+                                                          // the option<string> allows us to build an export table in the interpreter
     Debugger(Span)
 }
 
@@ -52,13 +53,14 @@ pub enum Expression {
     Each(Span, Box<Expression>, usize, Option<usize>, Box<Expression>),
     Call(Box<Expression>, Vec<Expression>),
     UnboundFunction(Span, Vec<(String, Span)>, Box<Expression>),
-    Function(Span, Vec<(usize, Span)>, Box<Expression>)
+    Function(Span, Vec<(usize, Span)>, Box<Expression>),
+    DotAccess(Box<Expression>, String)
 }
 
 #[derive(Debug, Clone)]
 pub struct TableEntry {
     pub content : Box<Expression>,
-    pub label : Option<String>
+    pub label : Option<Box<Expression>>
 }
 
 #[derive(Debug, Clone)]

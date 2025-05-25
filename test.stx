@@ -1,9 +1,2 @@
-[global posts = ["post one", label : "post two"]]
-
-[posts]
-
-[each posts -> i, post -]
-this is <b>[post]</b> indexed by [i]
-[/]
-
-TODO: implement sorting
+[global extlib = include("includable.stx")]
+[extlib.mcdonalds("Peanit's")]

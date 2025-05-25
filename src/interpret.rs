@@ -1,11 +1,16 @@
 // impls for all of the ast types that give them the interpret() function
+// NOTE:
+// the interpreter is *extremely* slow and inefficient. this is intentional; the one and only goal of the interpreter is to allow fast iteration.
+// prefer compiling to bytecode first, which is much, much faster.
+
 
 use crate::ast::*;
-use std::collections::HashMap;
+use std::collections::{ HashMap, BTreeMap };
 use std::sync::Arc;
 use crate::ffi::*;
 use crate::error::*;
 use crate::utility::Span;
+use crate::resolve::*;
 
 
 #[derive(Clone)]
@@ -29,6 +34,32 @@ impl std::cmp::PartialEq<Self> for SitixFunction {
 }
 
 
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone)]
+pub enum IndexableData {
+    String(String),
+    Number(u64)
+}
+
+
+impl IndexableData {
+    pub fn into_data(self) -> Data {
+        match self {
+            Self::String(s) => Data::String(s),
+            Self::Number(n) => Data::Number(n as f64)
+        }
+    }
+}
+
+impl ToString for IndexableData {
+    fn to_string(&self) -> String {
+        match self {
+            Self::String(s) => s.clone(),
+            Self::Number(n) => n.to_string()
+        }
+    }
+}
+
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Data { // data is the *interpreter's* idea of Sitix data.
     Boolean(bool),
@@ -36,20 +67,9 @@ pub enum Data { // data is the *interpreter's* idea of Sitix data.
     Number(f64),
     String(String),
     VariableHandle(usize),
-    Sitix(String), // this is a fairly magical high-level builtin type. it is the result of evaluating
-                   // a SitixExpression.
-                   // TODO: handle properties (this should eventually be (String, HashMap<String, Data>), once we've implemented that)
-    Table(HashMap<usize, Data>, HashMap<String, Data>), // Is This Stupid, Or What?
-                                             // essentially: can't easily hash f64, don't want to
-                                             // use a Key enum with downcasts from f64 to u64,
-                                             // hence: tables are two hashmaps, one from usize and one
-                                             // from String. Dumb 'Nuff 4 Ya?
-                                             // and yes, floats *are* rounded for indexing.
-                                             // heh.
-                                             // heh heh.
-                                             // HAHAHAHAHAHAHAHAHAHAHA.
-                                             // *ahem*, sorry, just remembering that time I philosophized
-                                             // about making a language better than JavaScript
+    Sitix(String, HashMap<String, usize>), // this is a fairly magical high-level builtin type. it is the result of evaluating
+                                          // a SitixExpression.
+    Table(BTreeMap<IndexableData, Data>),
     Function(SitixFunction)
 }
 
@@ -60,9 +80,9 @@ impl ToString for Data {
             Self::Nil => "".to_string(),
             Self::Number(n) => n.to_string(),
             Self::String(s) => s.clone(),
-            Self::Sitix(s) => s.clone(),
+            Self::Sitix(s, _) => s.clone(),
             Self::VariableHandle(u) => format!("variable handle {}", u),
-            Self::Table(t, p) => format!("{:?} + {:?}", t, p),
+            Self::Table(t) => format!("{:?}", t),
             Self::Function(_) => format!("<function>")
         }
     }
@@ -97,12 +117,12 @@ impl Data {
         }
     }
 
-    pub fn force_table(self) -> SitixPartialResult<(HashMap<usize, Data>, HashMap<String, Data>)> {
-        if let Self::Table(int_data, string_data) = self {
-            Ok((int_data, string_data))
+    pub fn force_table(self) -> SitixPartialResult<BTreeMap<IndexableData, Data>> {
+        if let Self::Table(data) = self {
+            Ok(data)
         }
         else {
-            Err(PartialError::invalid_type("function", self.typename()))
+            Err(PartialError::invalid_type("table", self.typename()))
         }
     }
 
@@ -112,11 +132,43 @@ impl Data {
             Self::Nil => "niltype",
             Self::Number(_) => "number",
             Self::String(_) => "string",
-            Self::Sitix(_) => "text",
+            Self::Sitix(_, _) => "text",
             Self::VariableHandle(_) => "reference",
-            Self::Table(_, _) => "table",
+            Self::Table(_) => "table",
             Self::Function(_) => "function"
         }.to_string()
+    }
+
+    pub fn into_index(self) -> SitixPartialResult<IndexableData> {
+        match self {
+            Self::String(s) => Ok(IndexableData::String(s)),
+            Self::Sitix(s, _) => Ok(IndexableData::String(s)),
+            Self::Number(n) => Ok(IndexableData::Number(n as u64)),
+            _ => Err(PartialError::invalid_type("string or number", self.typename()))
+        }
+    }
+
+    pub fn index(&self, thing : IndexableData) -> SitixPartialResult<Data> {
+        // search for a subproperty of this Data
+        match self {
+            Self::Table(t) => {
+                if let Some(d) = t.get(&thing) {
+                    Ok(d.clone())
+                }
+                else {
+                    Err(PartialError::invalid_index(thing.to_string()))
+                }
+            },
+            Self::Sitix(_, t) => {
+                if let Some(index) = t.get(&thing.to_string()) {
+                    Ok(Data::VariableHandle(*index))
+                }
+                else {
+                    Err(PartialError::invalid_index(thing.to_string()))
+                }
+            }
+            _ => Err(PartialError::invalid_type("table", self.typename()))
+        }
     }
 }
 
@@ -124,15 +176,27 @@ impl Data {
 #[derive(Debug)]
 pub struct InterpreterState {
     variables : HashMap<usize, Data>,
-    ffi : Arc<ForeignFunctionInterface>
+    ffi : Arc<ForeignFunctionInterface>,
+    export_table : HashMap<String, usize>,
+    pub top_index : usize
 }
 
 
 impl InterpreterState {
-    pub fn new(ffi : Arc<ForeignFunctionInterface>) -> Self {
+    pub fn new(resolver : ResolverState, ffi : Arc<ForeignFunctionInterface>) -> Self { // requires the resolver used to parse the syntax tree.
+                                                                                   // this is for FFI reasons: the ffi needs to be able to
+                                                                                   // access a resolver to parse other files.
+                                                                                   // creating a resolver on the fly would lead to variable
+                                                                                   // index collisions, and I really don't feel like doing bound
+                                                                                   // resolvers.
+                                                                                   // note that we don't store the resolver: it's polluted, we don't
+                                                                                   // want it. we just want data about the current variable
+                                                                                   // index mapping.
         Self {
             variables : HashMap::new(),
-            ffi
+            ffi,
+            top_index : resolver.vomit(),
+            export_table : HashMap::new()
         }
     }
 
@@ -182,6 +246,12 @@ impl InterpreterState {
             _ => Ok(data)
         }
     }
+
+    pub fn merge_symbols(&mut self, other : &InterpreterState) {
+        for (index, var) in &other.variables {
+            self.create(*index, var.clone());
+        }
+    }
 }
 
 
@@ -189,9 +259,9 @@ impl SitixExpression {
     pub fn interpret(&self, interpreter : &mut InterpreterState) -> SitixResult<Data> {
         Ok(match self {
             Self::Block(b) => {
-                Data::Sitix(b.interpret(interpreter)?.to_string())
+                Data::Sitix(b.interpret(interpreter)?.to_string(), interpreter.export_table.clone())
             },
-            Self::Text(text, _) => Data::Sitix(text.clone())
+            Self::Text(text, _) => Data::Sitix(text.clone(), HashMap::new())
         })
     }
 
@@ -227,9 +297,13 @@ impl Statement {
     fn interpret(&self, i : &mut InterpreterState) -> SitixResult<Data> {
         match self {
             Self::Expression(expr) => expr.interpret(i),
-            Self::Assign(_, ident, expr) => {
+            Self::Assign(_, ident, expr, export_name) => {
                 let value = expr.interpret(i)?;
+                let value = i.deref(value).map_err(|e| e.weld(expr.blame()))?;
                 i.create(*ident, value);
+                if let Some(name) = export_name {
+                    i.export_table.insert(name.clone(), *ident);
+                }
                 Ok(Data::Nil)
             },
             Self::Debugger(_) => {
@@ -245,7 +319,7 @@ impl Statement {
             Self::Expression(expr) => expr.blame(),
             Self::UnboundLetAssign(_, _, _) => panic!("unreachable"),
             Self::UnboundGlobalAssign(_, _, _) => panic!("unreachable"),
-            Self::Assign(span, _, expr) => {
+            Self::Assign(span, _, expr, _) => {
                 span.clone().merge(expr.blame())
             },
             Self::Debugger(span) => {
@@ -269,7 +343,7 @@ impl Expression {
                     let r = expr.interpret(i)?;
                     result += &i.deref(r).map_err(|e| e.weld(expr.blame()))?.to_string();
                 }
-                Ok(Data::Sitix(result))
+                Ok(Data::Sitix(result, HashMap::new()))
             },
             Self::True(_) => Ok(Data::Boolean(true)),
             Self::False(_) => Ok(Data::Boolean(false)),
@@ -297,21 +371,22 @@ impl Expression {
                 }
             },
             Self::Table(_, table) => {
-                let mut int_out = HashMap::new();
-                let mut string_out = HashMap::new();
+                let mut data = BTreeMap::new();
                 let mut current_index = 0;
                 for entry in table {
                     let expr = entry.content.interpret(i)?;
                     let expr = i.deref(expr).map_err(|e| e.weld(entry.content.blame()))?;
                     if let Some(label) = &entry.label {
-                        string_out.insert(label.clone(), expr);
+                        let lbl = label.interpret(i)?;
+                        let lbl = i.deref(lbl).map_err(|e| e.weld(entry.content.blame()))?;
+                        data.insert(lbl.clone().into_index().map_err(|e| e.weld(entry.content.blame()))?, expr);
                     }
                     else {
-                        int_out.insert(current_index, expr);
+                        data.insert(IndexableData::Number(current_index), expr);
                         current_index += 1;
                     }
                 }
-                Ok(Data::Table(int_out, string_out))
+                Ok(Data::Table(data))
             },
             Self::While(_, cond, body) => {
                 let mut out = String::new();
@@ -360,26 +435,22 @@ impl Expression {
                 let mut out = String::new();
                 let array = cond.interpret(i)?;
                 let array = i.deref(array).map_err(|e| e.weld(span.clone()))?;
-                let (int_map, string_map) = array.force_table().map_err(|e| e.weld(span.clone()))?;
-                for (index, item) in &int_map {
+                let map = array.force_table().map_err(|e| e.weld(span.clone()))?;
+                for (index, item) in &map {
                     i.create(*var, item.clone());
                     if let Some(v) = second_var {
-                        i.create(*v, Data::Number(*index as f64));
-                    }
-                    let expr_out = body.interpret(i)?;
-                    let expr_out = i.deref(expr_out).map_err(|e| e.weld(body.blame()))?;
-                    out += &expr_out.to_string();
-                }
-                for (index, item) in &string_map {
-                    i.create(*var, item.clone());
-                    if let Some(v) = second_var {
-                        i.create(*v, Data::String(index.clone()));
+                        i.create(*v, index.clone().into_data());
                     }
                     let expr_out = body.interpret(i)?;
                     let expr_out = i.deref(expr_out).map_err(|e| e.weld(body.blame()))?;
                     out += &expr_out.to_string();
                 }
                 Ok(Data::String(out))
+            },
+            Self::DotAccess(_expr, id) => {
+                let expr = _expr.interpret(i)?;
+                let expr = i.deref(expr).map_err(|e| e.weld(_expr.blame()))?;
+                Ok(expr.index(IndexableData::String(id.clone())).map_err(|e| e.weld(_expr.blame()))?)
             }
             _ => panic!("unreachable")
         }
@@ -409,6 +480,7 @@ impl Expression {
             Self::While(span, _, body) => span.clone().merge(body.blame()),
             Self::Call(fun, args) => if let Some(last) = args.last() { fun.blame().merge(last.blame()) } else { fun.blame() },
             Self::Function(span, _, contents) => span.clone().merge(contents.blame()),
+            Self::DotAccess(expr, _) => expr.blame(),
             _ => panic!("unreachable")
         }
     }
@@ -443,7 +515,7 @@ impl Literal {
         Ok(match self {
             Self::Ident(_) => todo!("identifier lookup"),
             Self::String(s) => Data::String(s.clone()),
-            Self::Text(s) => Data::Sitix(s.clone()),
+            Self::Text(s) => Data::Sitix(s.clone(), HashMap::new()),
             Self::Number(n) => Data::Number(*n)
         })
     }
@@ -501,10 +573,10 @@ impl Binary {
                 else if let Data::String(s) = two {
                     Data::String(one.to_string() + &s)
                 }
-                else if let Data::Sitix(s) = one {
+                else if let Data::Sitix(s, _) = one {
                     Data::String(s + &two.to_string())
                 }
-                else if let Data::Sitix(s) = two {
+                else if let Data::Sitix(s, _) = two {
                     Data::String(one.to_string() + &s)
                 }
                 else {
