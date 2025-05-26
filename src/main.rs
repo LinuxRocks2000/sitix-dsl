@@ -3,18 +3,16 @@ mod lexer;
 mod ast;
 mod parse;
 mod inflate;
-use inflate::*;
 mod interpret;
 use interpret::*;
 mod resolve;
-use resolve::*;
 mod ffi;
 use ffi::*;
 mod error;
 mod filesystem;
-use error::SitixResult;
 use clap::{ Parser, Subcommand };
 use std::path::PathBuf;
+use crate::resolve::*;
 
 
 // parsing works in three stages.
@@ -82,7 +80,7 @@ fn main() {
             let project = std::path::absolute(path).unwrap();
             let out = std::path::absolute(if let Some(output) = output { output } else { "output".to_string() }).unwrap();
             let metadata = std::fs::metadata(&project).unwrap();
-            std::env::set_current_dir(&project);
+            std::env::set_current_dir(&project).unwrap();
             if metadata.file_type().is_dir() {
                 let mut ffi = ForeignFunctionInterface::new();
                 ffi.add_standard_api();
@@ -91,10 +89,10 @@ fn main() {
                 let mut resolver = ResolverState::new(ffi.clone());
                 let dir = filesystem::Node::load_dir(PathBuf::from("."), &mut resolver).unwrap();
 
-                let mut interpreter = InterpreterState::new(ffi.clone());
+                let mut interpreter = InterpreterState::new(ffi.clone(), dir.clone());
 
                 std::fs::create_dir_all(&out).unwrap();
-                std::env::set_current_dir(&out);
+                std::env::set_current_dir(&out).unwrap();
 
                 dir.render(&mut interpreter).unwrap();
             }

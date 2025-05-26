@@ -1,5 +1,6 @@
 [!]
-[global template = @(title, content) -]<title>[title]</title>
+[global config = include("./includable.stx")]
+[global template = @(title, content) -]<title>[config.project_name + " | " + title]</title>
 [content][/]
 
 [global posts = [

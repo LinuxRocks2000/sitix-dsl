@@ -6,8 +6,6 @@
 
 
 use std::path::{PathBuf, Path};
-use crate::interpret::Data;
-use std::fs::DirEntry;
 use std::sync::Arc;
 use crate::ast::SitixExpression;
 use std::io::{Write, Read};
@@ -16,7 +14,7 @@ use crate::lexer;
 use crate::parse;
 use crate::inflate::*;
 use crate::error::*;
-use crate::InterpreterState;
+use crate::interpret::{ InterpreterState, Data };
 
 
 #[derive(Debug)]
@@ -121,7 +119,7 @@ impl Node {
             Self::Directory { path, children } => {
                 std::fs::create_dir_all(path).unwrap();
                 for child in children {
-                    child.render(interpreter);
+                    child.render(interpreter)?;
                 }
             },
             Self::DataFile { path, source_path_abs, render } => {
@@ -138,5 +136,55 @@ impl Node {
             }
         }
         Ok(())
+    }
+
+    pub fn search(&self, path : impl AsRef<Path>) -> Option<Arc<Self>> {
+        let path = path.as_ref();
+        match self {
+            Self::Directory { path : _, children } => {
+                for child in children {
+                    if child.get_path() == path {
+                        return Some(child.clone());
+                    }
+                    if let Some(out) = child.search(path) {
+                        return Some(out);
+                    }
+                }
+            },
+            _ => {}
+        }
+        None
+    }
+
+    fn get_path(&self) -> PathBuf {
+        match self {
+            Self::Directory { path, children : _ } => {
+                path.clone()
+            },
+            Self::DataFile { path, .. } => {
+                path.clone()
+            },
+            Self::ObjectFile { path, .. } => {
+                path.clone()
+            }
+        }
+    }
+
+    pub fn into_data(&self, i : &mut InterpreterState) -> SitixResult<Data> {
+        match self {
+            Self::Directory { path : _, children } => {
+                let mut childs = vec![];
+                for child in children {
+                    childs.push(child.into_data(i).unwrap());
+                }
+                Ok(Data::table_from_vec(childs))
+            },
+            Self::DataFile { path : _, source_path_abs, render : _ } => {
+                Ok(Data::String(std::fs::read_to_string(source_path_abs).unwrap()))
+            },
+            Self::ObjectFile { path : _, expr, render : _ } => {
+                expr.interpret(i)
+            }
+        }
     }
 }

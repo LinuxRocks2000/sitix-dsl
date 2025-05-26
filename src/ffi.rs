@@ -2,8 +2,6 @@
 use std::collections::HashMap;
 use crate::interpret::{ Data, SitixFunction, InterpreterState };
 use crate::error::*;
-use std::sync::Arc;
-use crate::resolve::*;
 
 
 #[derive(Debug)]
@@ -59,6 +57,10 @@ impl ForeignFunctionInterface {
                 }
                 println!("");
                 Ok(Data::Nil)
+            }),
+            ("include".to_string(), &|i, args| {
+                let file = i.root_node.search(i.deref(args[0].clone()).unwrap().to_string()).unwrap(); // TODO: make internally relative paths work
+                file.into_data(i)
             })
         ]);
     }

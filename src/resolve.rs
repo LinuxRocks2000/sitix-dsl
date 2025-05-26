@@ -118,7 +118,7 @@ impl Expression {
             Self::False(s) => Self::False(s),
             Self::Nil(s) => Self::Nil(s),
             Self::UnboundVariableAccess(span, name) => {
-                Self::VariableAccess(span, r.find(&name).unwrap()) // TODO: don't unwrap here
+                Self::VariableAccess(span, r.find(&name).expect(&name)) // TODO: don't unwrap here
             },
             Self::Assignment(variable, value) => Self::Assignment(Box::new(variable.resolve(r)), Box::new(value.resolve(r))),
             Self::IfBranch(span, condition, truthy, falsey) => Self::IfBranch(span, Box::new(condition.resolve(r)), Box::new(truthy.resolve(r)), match falsey { Some(falsey) => Some(Box::new(falsey.resolve(r))), None => None }),

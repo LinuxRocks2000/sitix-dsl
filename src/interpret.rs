@@ -11,6 +11,7 @@ use crate::ffi::*;
 use crate::error::*;
 use crate::utility::Span;
 use crate::resolve::*;
+use crate::filesystem;
 
 
 #[derive(Clone)]
@@ -170,6 +171,14 @@ impl Data {
             _ => Err(PartialError::invalid_type("table", self.typename()))
         }
     }
+
+    pub fn table_from_vec(vec : Vec<Data>) -> Data {
+        let mut tree = BTreeMap::new();
+        for (index, data) in vec.into_iter().enumerate() {
+            tree.insert(IndexableData::Number(index as u64), data);
+        }
+        Data::Table(tree)
+    }
 }
 
 
@@ -177,12 +186,13 @@ impl Data {
 pub struct InterpreterState {
     variables : HashMap<usize, Data>,
     ffi : Arc<ForeignFunctionInterface>,
-    export_table : HashMap<String, usize>
+    export_table : HashMap<String, usize>,
+    pub root_node : Arc<filesystem::Node>
 }
 
 
 impl InterpreterState {
-    pub fn new(ffi : Arc<ForeignFunctionInterface>) -> Self { // requires the resolver used to parse the syntax tree.
+    pub fn new(ffi : Arc<ForeignFunctionInterface>, root : Arc<filesystem::Node>) -> Self { // requires the resolver used to parse the syntax tree.
                                                               // this is for FFI reasons: the ffi needs to be able to
                                                               // access a resolver to parse other files.
                                                               // creating a resolver on the fly would lead to variable
@@ -194,7 +204,8 @@ impl InterpreterState {
         Self {
             variables : HashMap::new(),
             ffi,
-            export_table : HashMap::new()
+            export_table : HashMap::new(),
+            root_node : root
         }
     }
 

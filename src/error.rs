@@ -124,6 +124,7 @@ pub type SitixResult<T> = Result<T, Error>;
 // a PartialError can tell you what happened, but not where or why
 // meant to be returned by functions that don't have access to localization context (a Token-at-fault), and `weld`ed
 // by functions that do.
+#[derive(Debug)]
 pub struct PartialError {
     pub tp : String,
     pub reason : String
