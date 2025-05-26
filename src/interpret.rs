@@ -177,25 +177,23 @@ impl Data {
 pub struct InterpreterState {
     variables : HashMap<usize, Data>,
     ffi : Arc<ForeignFunctionInterface>,
-    export_table : HashMap<String, usize>,
-    pub top_index : usize
+    export_table : HashMap<String, usize>
 }
 
 
 impl InterpreterState {
-    pub fn new(resolver : ResolverState, ffi : Arc<ForeignFunctionInterface>) -> Self { // requires the resolver used to parse the syntax tree.
-                                                                                   // this is for FFI reasons: the ffi needs to be able to
-                                                                                   // access a resolver to parse other files.
-                                                                                   // creating a resolver on the fly would lead to variable
-                                                                                   // index collisions, and I really don't feel like doing bound
-                                                                                   // resolvers.
-                                                                                   // note that we don't store the resolver: it's polluted, we don't
-                                                                                   // want it. we just want data about the current variable
-                                                                                   // index mapping.
+    pub fn new(ffi : Arc<ForeignFunctionInterface>) -> Self { // requires the resolver used to parse the syntax tree.
+                                                              // this is for FFI reasons: the ffi needs to be able to
+                                                              // access a resolver to parse other files.
+                                                              // creating a resolver on the fly would lead to variable
+                                                              // index collisions, and I really don't feel like doing bound
+                                                              // resolvers.
+                                                              // note that we don't store the resolver: it's polluted, we don't
+                                                              // want it. we just want data about the current variable
+                                                              // index mapping.
         Self {
             variables : HashMap::new(),
             ffi,
-            top_index : resolver.vomit(),
             export_table : HashMap::new()
         }
     }

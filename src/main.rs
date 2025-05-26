@@ -11,7 +11,10 @@ use resolve::*;
 mod ffi;
 use ffi::*;
 mod error;
+mod filesystem;
 use error::SitixResult;
+use clap::{ Parser, Subcommand };
+use std::path::PathBuf;
 
 
 // parsing works in three stages.
@@ -49,38 +52,60 @@ use error::SitixResult;
 use std::sync::Arc;
 
 
-pub fn parse_file(fname : impl ToString) -> SitixResult<Data> {
-    let file = lexer::FileReader::open(fname);
-    let tokens = lexer::lexer(file)?;
+#[derive(Debug, Subcommand)]
+enum Command {
+    Static {
+        path : PathBuf, // input file or directory
 
-    println!("tokens: {:?}", tokens);
+        /// Sets the output directory
+        #[arg(short, long, value_name = "FILE")]
+        output : Option<String> // the DIRECTORY to throw templated files in. templated files will have the same name as their original files,
+                                // so be smart about this.
+                                // sitix will never overwrite a directory that does not contain a .sitix file; this is to ensure you don't accidentally
+                                // do sitix static -o . and overwite your entire project.
+    }
+}
 
-    let mut token_buffer = parse::TokenReader::new(tokens);
-    let mut inflated = SitixTree::root(&mut token_buffer)?; // the data structure here is significantly more useful to the final stage than a raw token stream
 
-    println!("inflate: {:#?}", inflated);
-
-    let ast = inflated.parse()?;
-
-    println!("ast: {:#?}", ast);
-
-    let mut ffi = ForeignFunctionInterface::new();
-    ffi.add_standard_api();
-    let ffi = Arc::new(ffi);
-
-    let mut resolver = ResolverState::new(ffi.clone());
-    let ast = ast.resolve(&mut resolver);
-
-    let mut interpreter = InterpreterState::new(resolver, ffi.clone());
-    Ok(ast.interpret(&mut interpreter).unwrap())
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command : Command
 }
 
 
 fn main() {
-    println!("{}", match parse_file("test.stx") {
-        Err(e) => format!("{:?}", e),
-        Ok(s) => s.to_string()
-    });
+    let cli = Cli::parse();
+    match cli.command {
+        Command::Static { path, output } => {
+            let project = std::path::absolute(path).unwrap();
+            let out = std::path::absolute(if let Some(output) = output { output } else { "output".to_string() }).unwrap();
+            let metadata = std::fs::metadata(&project).unwrap();
+            std::env::set_current_dir(&project);
+            if metadata.file_type().is_dir() {
+                let mut ffi = ForeignFunctionInterface::new();
+                ffi.add_standard_api();
+                let ffi = Arc::new(ffi);
+
+                let mut resolver = ResolverState::new(ffi.clone());
+                let dir = filesystem::Node::load_dir(PathBuf::from("."), &mut resolver).unwrap();
+
+                let mut interpreter = InterpreterState::new(ffi.clone());
+
+                std::fs::create_dir_all(&out).unwrap();
+                std::env::set_current_dir(&out);
+
+                dir.render(&mut interpreter).unwrap();
+            }
+            else if metadata.file_type().is_file() {
+                panic!("at the moment, parsing a single file is not supported.");
+            }
+            else {
+                panic!("no such file!");
+            }
+        }
+    }
 }
 
 // 1061, 1.5, 762

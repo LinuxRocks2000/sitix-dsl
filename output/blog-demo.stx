@@ -1,0 +1,25 @@
+
+
+
+
+
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Post | test post</title>
+	</head>
+	<body>
+		
+<h2>test post</h2>
+<p>
+	<i>Written by pusheen on 2025-5-23</i>
+</p>
+
+<p>
+	Hello, everyone! This is my first post written using the improved Sitix templating engine!
+</p>
+
+
+	</body>
+</html>

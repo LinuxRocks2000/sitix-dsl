@@ -1,0 +1,26 @@
+ultimate goal: be able to use,
+- sitix build <directory>                              ; to get a bytecode of the sitix app
+- sitix static <directory>                             ; to generate static files
+- sitix dev <directory>                                ; to spin a development server
+- stxvm run app.stxc                                   ; to run a sitix app in a production-ready server
+- stxvm static app.stxc                                ; to generate static outputs from a sitix app
+
+note: you can't use sitix to build a single file. this is because the VM loads every file in the project as a TrackedFile and does parsing + resolving,
+before starting to actually process any files. this sounds naive, but actually makes it much simpler to handle things like file includes - because
+there's a preresolved syntax tree with guaranteed unique variable ids, it's safe to simply interpret them in place.
+this doesn't extend to single files because all the practical uses of Sitix are multifile, and I don't feel like adding shims just to support
+an unlikely and useless operation mode.
+
+need to,
+- set up clap
+- add command-line config with the -c flag
+- add directory support (both in CLI and in include()s)
+- add opening phrase detection so we don't parse files that don't need to be parsed, and don't render datafiles
+- make `include` a keyword, for my sanity
+- add the development webserver (with an inotify stack so it can respond in real time to changes)
+  - don't make the same mistake as sitix watchdog; mark what updates need to be made *before* doing them, so we don't get caught in a recursion
+- add dynamo features and dynamo featuregating
+  - dynamo essentially prevents sitix files from being cached
+  - and provides a bunch of ffi features, including routing magic
+- add the bytecode generator
+- build the vm!

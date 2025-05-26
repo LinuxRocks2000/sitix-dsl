@@ -1,0 +1,15 @@
+[!]
+[global template = @(title, content) -]<title>[title]</title>
+[content][/]
+
+[global posts = [
+	["title" : "my post!", "content" : "post contents!"],
+	["title" : "my other post!", "content" : "even more post contents!"]
+]]
+
+[each posts -> post -]
+[template(post.title) -]<p>
+	[post.content]
+</p>
+[/]
+[/]

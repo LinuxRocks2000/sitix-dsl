@@ -1,6 +1,7 @@
 // contains the lexer function
 use crate::utility::*;
 use crate::error::{ SitixResult, Error };
+use std::path::Path;
 
 
 pub struct FileReader {
@@ -12,13 +13,20 @@ pub struct FileReader {
 
 
 impl FileReader {
-    pub fn open(name : impl ToString) -> FileReader {
+    pub fn open(name : impl AsRef<Path>) -> FileReader {
         FileReader {
-            name : name.to_string(),
+            file : std::fs::read_to_string(&name).unwrap().chars().collect(),
+            name : name.as_ref().file_name().unwrap().to_str().unwrap().to_string(),
             span_start : 0,
             current_byte : 0,
-            file : std::fs::read_to_string(name.to_string()).unwrap().chars().collect()
         }
+    }
+
+    fn skip_opening_phrase(&mut self) -> SitixResult<()> {
+        self.next()?;
+        self.next()?;
+        self.next()?;
+        Ok(())
     }
 
     fn next(&mut self) -> SitixResult<char> {
@@ -58,6 +66,7 @@ impl FileReader {
 
 pub fn lexer(mut buffer : FileReader) -> SitixResult<Vec<Token>> { // please for the love of god never touch this
                                                                    // [slightly later] it... it had to be touched. my... my eyes...
+    buffer.skip_opening_phrase()?;
     let mut output = vec![];
     while let Ok(c) = buffer.peek() {
         buffer.open_span();

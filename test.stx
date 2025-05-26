@@ -1,2 +1,0 @@
-[global extlib = include("includable.stx")]
-[extlib.mcdonalds("Peanit's")]

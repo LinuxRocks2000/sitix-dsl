@@ -1,6 +1,0 @@
-[global posts = [
-	["author" : "tyler", "message" : "in a bottle..."],
-	["author" : "poop", "message" : "haha, poop is funny"]
-]]
-
-[global mcdonalds = @(funni) -]Mc[funni][/]

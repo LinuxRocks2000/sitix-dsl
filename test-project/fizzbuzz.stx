@@ -1,3 +1,5 @@
+[!]
+
 [ nil /* this is the smallest sitix fizzbuzz I'm aware of */]
 
 [let n = 0;

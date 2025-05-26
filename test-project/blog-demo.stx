@@ -1,3 +1,4 @@
+[!]
 [global base_template = @(title, content) -]
 <!DOCTYPE html>
 <html>
