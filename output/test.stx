@@ -1,19 +1,17 @@
-
-
-
-
-
-
-
 <title>my test project | my post!</title>
+<div>
+
 <p>
 	post contents!
 </p>
 
-
+</div>
 <title>my test project | my other post!</title>
+<div>
+
 <p>
 	even more post contents!
 </p>
 
+</div>
 

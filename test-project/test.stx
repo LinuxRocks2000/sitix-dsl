@@ -1,16 +1,12 @@
-[!]
-[global config = include("./includable.stx")]
-[global template = @(title, content) -]<title>[config.project_name + " | " + title]</title>
-[content][/]
-
-[global posts = [
+[!][
+let template = include("templates/example.stx");
+let posts = [
 	["title" : "my post!", "content" : "post contents!"],
 	["title" : "my other post!", "content" : "even more post contents!"]
-]]
+];
 
-[each posts -> post -]
-[template(post.title) -]<p>
+each posts -> post template.page_base(post.title)-]
+<p>
 	[post.content]
 </p>
-[/]
 [/]

@@ -11,12 +11,12 @@ use crate::ffi::*;
 use crate::error::*;
 use crate::utility::Span;
 use crate::resolve::*;
-use crate::filesystem;
+use crate::filesystem::{SitixProject, self};
 
 
 #[derive(Clone)]
 pub enum SitixFunction {
-    Builtin(&'static dyn Fn(&mut InterpreterState, &[Data]) -> SitixResult<Data>),
+    Builtin(&'static dyn Fn(&mut InterpreterState, usize, &SitixProject, &[Data]) -> SitixResult<Data>),
     UserDefined(Vec<(usize, Span)>, Box<Expression>)
 }
 
@@ -186,13 +186,12 @@ impl Data {
 pub struct InterpreterState {
     variables : HashMap<usize, Data>,
     ffi : Arc<ForeignFunctionInterface>,
-    export_table : HashMap<String, usize>,
-    pub root_node : Arc<filesystem::Node>
+    pub export_table : HashMap<String, usize>
 }
 
 
 impl InterpreterState {
-    pub fn new(ffi : Arc<ForeignFunctionInterface>, root : Arc<filesystem::Node>) -> Self { // requires the resolver used to parse the syntax tree.
+    pub fn new(ffi : Arc<ForeignFunctionInterface>) -> Self { // requires the resolver used to parse the syntax tree.
                                                               // this is for FFI reasons: the ffi needs to be able to
                                                               // access a resolver to parse other files.
                                                               // creating a resolver on the fly would lead to variable
@@ -204,9 +203,14 @@ impl InterpreterState {
         Self {
             variables : HashMap::new(),
             ffi,
-            export_table : HashMap::new(),
-            root_node : root
+            export_table : HashMap::new()
         }
+    }
+
+    pub fn new_with_standard_ffi() -> Self {
+        let mut ffi = ForeignFunctionInterface::new();
+        ffi.add_standard_api();
+        Self::new(Arc::new(ffi))
     }
 
     pub fn get(&self, index : usize) -> SitixPartialResult<Data> {
@@ -265,10 +269,10 @@ impl InterpreterState {
 
 
 impl SitixExpression {
-    pub fn interpret(&self, interpreter : &mut InterpreterState) -> SitixResult<Data> {
+    pub fn interpret(&self, interpreter : &mut InterpreterState, node : usize, project : &SitixProject) -> SitixResult<Data> {
         Ok(match self {
             Self::Block(b) => {
-                Data::Sitix(b.interpret(interpreter)?.to_string(), interpreter.export_table.clone())
+                Data::Sitix(b.interpret(interpreter, node, project)?.to_string(), interpreter.export_table.clone())
             },
             Self::Text(text, _) => Data::Sitix(text.clone(), HashMap::new())
         })
@@ -283,12 +287,12 @@ impl SitixExpression {
 }
 
 impl Block {
-    fn interpret(&self, i : &mut InterpreterState) -> SitixResult<Data> {
+    fn interpret(&self, i : &mut InterpreterState, node : usize, project : &SitixProject) -> SitixResult<Data> {
         for statement in &self.inner {
-            statement.interpret(i)?; // throw away the result
+            statement.interpret(i, node, project)?; // throw away the result
         }
         if let Some(tail) = &self.tail {
-            let out = tail.interpret(i)?;
+            let out = tail.interpret(i, node, project)?;
             let out = i.deref(out).map_err(|e| e.weld(tail.blame()))?;
             Ok(out)
         }
@@ -303,11 +307,11 @@ impl Block {
 }
 
 impl Statement {
-    fn interpret(&self, i : &mut InterpreterState) -> SitixResult<Data> {
+    fn interpret(&self, i : &mut InterpreterState, node : usize, project : &SitixProject) -> SitixResult<Data> {
         match self {
-            Self::Expression(expr) => expr.interpret(i),
+            Self::Expression(expr) => expr.interpret(i, node, project),
             Self::Assign(_, ident, expr, export_name) => {
-                let value = expr.interpret(i)?;
+                let value = expr.interpret(i, node, project)?;
                 let value = i.deref(value).map_err(|e| e.weld(expr.blame()))?;
                 i.create(*ident, value);
                 if let Some(name) = export_name {
@@ -339,17 +343,17 @@ impl Statement {
 }
 
 impl Expression {
-    fn interpret(&self, i : &mut InterpreterState) -> SitixResult<Data> {
+    fn interpret(&self, i : &mut InterpreterState, node : usize, project : &SitixProject) -> SitixResult<Data> {
         match self {
-            Self::Literal(_, l) => l.interpret(i),
-            Self::Unary(u) => u.interpret(i),
-            Self::Binary(b) => b.interpret(i),
-            Self::Grouping(e) => e.interpret(i),
-            Self::Braced(b) => b.interpret(i),
+            Self::Literal(_, l) => l.interpret(i, node, project),
+            Self::Unary(u) => u.interpret(i, node, project),
+            Self::Binary(b) => b.interpret(i, node, project),
+            Self::Grouping(e) => e.interpret(i, node, project),
+            Self::Braced(b) => b.interpret(i, node, project),
             Self::SitixExpression(v) => {
                 let mut result = String::new();
                 for expr in v {
-                    let r = expr.interpret(i)?;
+                    let r = expr.interpret(i, node, project)?;
                     result += &i.deref(r).map_err(|e| e.weld(expr.blame()))?.to_string();
                 }
                 Ok(Data::Sitix(result, HashMap::new()))
@@ -361,19 +365,19 @@ impl Expression {
                 i.get(*name).map_err(|e| e.weld(span.clone()))
             },
             Self::Assignment(variable, value) => {
-                let var = variable.interpret(i)?;
-                let val = value.interpret(i)?;
+                let var = variable.interpret(i, node, project)?;
+                let val = value.interpret(i, node, project)?;
                 i.set(var, i.deref(val.clone()).map_err(|e| e.weld(value.blame()))?).map_err(|e| e.weld(variable.blame()))?;
                 Ok(val)
             },
             Self::IfBranch(_, condition, truthy, falsey) => {
-                let way = condition.interpret(i)?;
+                let way = condition.interpret(i, node, project)?;
                 let way = i.deref(way).map_err(|e| e.weld(condition.blame()))?.force_boolean().map_err(|e| e.weld(condition.blame()))?;
                 if way {
-                    truthy.interpret(i)
+                    truthy.interpret(i, node, project)
                 }
                 else if let Some(falsey) = falsey {
-                    falsey.interpret(i)
+                    falsey.interpret(i, node, project)
                 }
                 else {
                     Ok(Data::Nil)
@@ -383,10 +387,10 @@ impl Expression {
                 let mut data = BTreeMap::new();
                 let mut current_index = 0;
                 for entry in table {
-                    let expr = entry.content.interpret(i)?;
+                    let expr = entry.content.interpret(i, node, project)?;
                     let expr = i.deref(expr).map_err(|e| e.weld(entry.content.blame()))?;
                     if let Some(label) = &entry.label {
-                        let lbl = label.interpret(i)?;
+                        let lbl = label.interpret(i, node, project)?;
                         let lbl = i.deref(lbl).map_err(|e| e.weld(entry.content.blame()))?;
                         data.insert(lbl.clone().into_index().map_err(|e| e.weld(entry.content.blame()))?, expr);
                     }
@@ -400,10 +404,10 @@ impl Expression {
             Self::While(_, cond, body) => {
                 let mut out = String::new();
                 loop {
-                    let do_exec = cond.interpret(i)?;
+                    let do_exec = cond.interpret(i, node, project)?;
                     let do_exec = i.deref(do_exec).map_err(|e| e.weld(cond.blame()))?;
                     if do_exec.force_boolean().map_err(|e| e.weld(cond.blame()))? {
-                        let expressive_output = body.interpret(i)?;
+                        let expressive_output = body.interpret(i, node, project)?;
                         let expressive_output = i.deref(expressive_output).map_err(|e| e.weld(body.blame()))?;
                         out += &expressive_output.to_string();
                     }
@@ -414,15 +418,15 @@ impl Expression {
                 Ok(Data::String(out))
             },
             Self::Call(func, args) => {
-                let fun = func.interpret(i)?;
+                let fun = func.interpret(i, node, project)?;
                 let fun = i.deref(fun).map_err(|e| e.weld(func.blame()))?;
                 let mut to_args = vec![];
                 for arg in args {
-                    to_args.push(arg.interpret(i)?);
+                    to_args.push(arg.interpret(i, node, project)?);
                 }
                 match fun.force_function().map_err(|e| e.weld(func.blame()))? {
                     SitixFunction::Builtin(built_in) => {
-                        built_in(i, &to_args)
+                        built_in(i, node, project, &to_args)
                     },
                     SitixFunction::UserDefined(req_args, contents) => {
                         if args.len() != req_args.len() {
@@ -432,7 +436,7 @@ impl Expression {
                             let content = i.deref(content).map_err(|e| e.weld(span.clone()))?;
                             i.create(id, content);
                         }
-                        let ret = contents.interpret(i);
+                        let ret = contents.interpret(i, node, project);
                         ret
                     }
                 }
@@ -442,7 +446,7 @@ impl Expression {
             },
             Self::Each(span, cond, var, second_var, body) => {
                 let mut out = String::new();
-                let array = cond.interpret(i)?;
+                let array = cond.interpret(i, node, project)?;
                 let array = i.deref(array).map_err(|e| e.weld(span.clone()))?;
                 let map = array.force_table().map_err(|e| e.weld(span.clone()))?;
                 for (index, item) in &map {
@@ -450,14 +454,14 @@ impl Expression {
                     if let Some(v) = second_var {
                         i.create(*v, index.clone().into_data());
                     }
-                    let expr_out = body.interpret(i)?;
+                    let expr_out = body.interpret(i, node, project)?;
                     let expr_out = i.deref(expr_out).map_err(|e| e.weld(body.blame()))?;
                     out += &expr_out.to_string();
                 }
                 Ok(Data::String(out))
             },
             Self::DotAccess(_expr, id) => {
-                let expr = _expr.interpret(i)?;
+                let expr = _expr.interpret(i, node, project)?;
                 let expr = i.deref(expr).map_err(|e| e.weld(_expr.blame()))?;
                 Ok(expr.index(IndexableData::String(id.clone())).map_err(|e| e.weld(_expr.blame()))?)
             }
@@ -496,15 +500,15 @@ impl Expression {
 }
 
 impl Unary {
-    fn interpret(&self, i : &mut InterpreterState) -> SitixResult<Data> {
+    fn interpret(&self, i : &mut InterpreterState, node : usize, project : &SitixProject) -> SitixResult<Data> {
         Ok(match self {
             Self::Negative(span, expr) => {
-                let res = expr.interpret(i)?;
+                let res = expr.interpret(i, node, project)?;
                 let res = i.deref(res).map_err(|e| e.weld(span.clone().merge(expr.blame())))?;
                 Data::Number(res.force_number().map_err(|e| e.weld(span.clone().merge(expr.blame())))? * -1.0)
             },
             Self::Not(span, expr) => {
-                let res = expr.interpret(i)?;
+                let res = expr.interpret(i, node, project)?;
                 let res = i.deref(res).map_err(|e| e.weld(span.clone().merge(expr.blame())))?;
                 Data::Boolean(!(res.force_boolean().map_err(|e| e.weld(span.clone().merge(expr.blame())))?))
             }
@@ -520,7 +524,7 @@ impl Unary {
 }
 
 impl Literal {
-    fn interpret(&self, _ : &mut InterpreterState) -> SitixResult<Data> {
+    fn interpret(&self, _ : &mut InterpreterState, node : usize, project : &SitixProject) -> SitixResult<Data> {
         Ok(match self {
             Self::Ident(_) => todo!("identifier lookup"),
             Self::String(s) => Data::String(s.clone()),
@@ -531,49 +535,49 @@ impl Literal {
 }
 
 impl Binary {
-    fn interpret(&self, i : &mut InterpreterState) -> SitixResult<Data> {
+    fn interpret(&self, i : &mut InterpreterState, node : usize, project : &SitixProject) -> SitixResult<Data> {
         Ok(match self {
             Self::Equals(_one, _two) => {
-                let one = _one.interpret(i)?;
-                let two = _two.interpret(i)?;
+                let one = _one.interpret(i, node, project)?;
+                let two = _two.interpret(i, node, project)?;
                 let one = i.deref(one).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 let two = i.deref(two).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 Data::Boolean(one == two)
             },
             Self::Nequals(_one, _two) => {
-                let one = _one.interpret(i)?;
-                let two = _two.interpret(i)?;
+                let one = _one.interpret(i, node, project)?;
+                let two = _two.interpret(i, node, project)?;
                 let one = i.deref(one).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 let two = i.deref(two).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 Data::Boolean(one != two)
             },
             Self::And(_one, _two) => {
-                let one = _one.interpret(i)?;
+                let one = _one.interpret(i, node, project)?;
                 let one = i.deref(one).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
                     .force_boolean().map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 if one == false {
                     return Ok(Data::Boolean(false));
                 }
-                let two = _two.interpret(i)?;
+                let two = _two.interpret(i, node, project)?;
                 let two = i.deref(two).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
                     .force_boolean().map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 Data::Boolean(one && two)
             },
             Self::Or(_one, _two) => {
-                let one = _one.interpret(i)?;
+                let one = _one.interpret(i, node, project)?;
                 let one = i.deref(one).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
                     .force_boolean().map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 if one == true {
                     return Ok(Data::Boolean(true));
                 }
-                let two = _two.interpret(i)?;
+                let two = _two.interpret(i, node, project)?;
                 let two = i.deref(two).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
                     .force_boolean().map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 Data::Boolean(one || two)
             },
             Self::Add(_one, _two) => {
-                let one = _one.interpret(i)?;
-                let two = _two.interpret(i)?;
+                let one = _one.interpret(i, node, project)?;
+                let two = _two.interpret(i, node, project)?;
                 let one = i.deref(one).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 let two = i.deref(two).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 if let Data::String(s) = one {
@@ -595,8 +599,8 @@ impl Binary {
                 }
             },
             Self::Sub(_one, _two) => {
-                let one = _one.interpret(i)?;
-                let two = _two.interpret(i)?;
+                let one = _one.interpret(i, node, project)?;
+                let two = _two.interpret(i, node, project)?;
                 let one = i.deref(one).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
                     .force_number().map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 let two = i.deref(two).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
@@ -604,8 +608,8 @@ impl Binary {
                 Data::Number(one - two)
             },
             Self::Mul(_one, _two) => {
-                let one = _one.interpret(i)?;
-                let two = _two.interpret(i)?;
+                let one = _one.interpret(i, node, project)?;
+                let two = _two.interpret(i, node, project)?;
                 let one = i.deref(one).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
                     .force_number().map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 let two = i.deref(two).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
@@ -613,8 +617,8 @@ impl Binary {
                 Data::Number(one * two)
             },
             Self::Div(_one, _two) => {
-                let one = _one.interpret(i)?;
-                let two = _two.interpret(i)?;
+                let one = _one.interpret(i, node, project)?;
+                let two = _two.interpret(i, node, project)?;
                 let one = i.deref(one).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
                     .force_number().map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 let two = i.deref(two).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
@@ -622,8 +626,8 @@ impl Binary {
                 Data::Number(one / two)
             },
             Self::Mod(_one, _two) => {
-                let one = _one.interpret(i)?;
-                let two = _two.interpret(i)?;
+                let one = _one.interpret(i, node, project)?;
+                let two = _two.interpret(i, node, project)?;
                 let one = i.deref(one).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
                     .force_number().map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 let two = i.deref(two).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
@@ -631,8 +635,8 @@ impl Binary {
                 Data::Number(one % two)
             },
             Self::Gt(_one, _two) => {
-                let one = _one.interpret(i)?;
-                let two = _two.interpret(i)?;
+                let one = _one.interpret(i, node, project)?;
+                let two = _two.interpret(i, node, project)?;
                 let one = i.deref(one).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
                     .force_number().map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 let two = i.deref(two).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
@@ -640,8 +644,8 @@ impl Binary {
                 Data::Boolean(one > two)
             },
             Self::Gte(_one, _two) => {
-                let one = _one.interpret(i)?;
-                let two = _two.interpret(i)?;
+                let one = _one.interpret(i, node, project)?;
+                let two = _two.interpret(i, node, project)?;
                 let one = i.deref(one).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
                     .force_number().map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 let two = i.deref(two).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
@@ -649,8 +653,8 @@ impl Binary {
                 Data::Boolean(one >= two)
             },
             Self::Lt(_one, _two) => {
-                let one = _one.interpret(i)?;
-                let two = _two.interpret(i)?;
+                let one = _one.interpret(i, node, project)?;
+                let two = _two.interpret(i, node, project)?;
                 let one = i.deref(one).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
                     .force_number().map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 let two = i.deref(two).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
@@ -658,8 +662,8 @@ impl Binary {
                 Data::Boolean(one < two)
             },
             Self::Lte(_one, _two) => {
-                let one = _one.interpret(i)?;
-                let two = _two.interpret(i)?;
+                let one = _one.interpret(i, node, project)?;
+                let two = _two.interpret(i, node, project)?;
                 let one = i.deref(one).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?
                     .force_number().map_err(|e| e.weld(_one.blame().merge(_two.blame())))?;
                 let two = i.deref(two).map_err(|e| e.weld(_one.blame().merge(_two.blame())))?

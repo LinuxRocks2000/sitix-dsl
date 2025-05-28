@@ -1,8 +1,9 @@
 // filesystem utilities.
 // this contains the loader abstractions that make sitix work!
-// all path operations are relative and should occur from inside the appropriate directory.
-// when loading, for instance, you must have CWD = the root directory
-// when rendering, you must have CWD = the output directory
+
+// the sitix project is just a Vec of Nodes.
+// each node has a usize id, which are used as indexes to find parents and children inside the
+// SitixRootTree
 
 
 use std::path::{PathBuf, Path};
@@ -17,43 +18,105 @@ use crate::error::*;
 use crate::interpret::{ InterpreterState, Data };
 
 
+pub struct SitixProject {
+    nodes : Vec<Node>,
+    sourcedir : PathBuf
+}
+
+
 #[derive(Debug)]
 pub enum Node {
     Directory {
-        path : PathBuf,
-        children : Vec<Arc<Node>>
+        name : String,
+        parent : Option<usize>,
+        children : Vec<usize>
     },
     ObjectFile { // a file with an opening phrase [?] or [!]
-        path : PathBuf,
+        name : String,
         expr : SitixExpression,
+        parent : Option<usize>,
         render : bool // if the opening phrase is [!], this will be true
     },
     DataFile { // a file with no opening phrase or the opening phrase [@]
-        path : PathBuf,
-        source_path_abs : PathBuf,
-        render : bool // if the opening phrase is [@], this is false
-        // DataFiles are not actually loaded, as they can be quite large! normally they will only be copied.
-        // the only reason they will ever be loaded in RAM is that an actual sitix file used include.
-        // datafiles with the .json extension will be parsed as tables for convenience upon include-ing (tables are a superset of JSON)
+        name : String,
+        parent : Option<usize>,
+        source_path_abs : PathBuf, // absolute source path
     }
 }
 
 
-impl Node {
-    pub fn load(path : PathBuf, resolver : &mut ResolverState) -> std::io::Result<Arc<Node>> {
-        let meta = std::fs::metadata(&path)?;
-        if meta.file_type().is_dir() {
-            Self::load_dir(path, resolver)
-        }
-        else if meta.file_type().is_file() {
-            Self::load_file(path, resolver)
-        }
-        else {
-            panic!("invalid path {:?}", path);
+impl SitixProject {
+    pub fn new(sourcedir : PathBuf) -> Self {
+        Self {
+            nodes : vec![],
+            sourcedir
         }
     }
 
-    pub fn load_file(path : PathBuf, resolver : &mut ResolverState) -> std::io::Result<Arc<Node>> {
+    pub fn get_path(&self, id : usize, root : PathBuf) -> Option<PathBuf> { // perform recursive lookups to transform a given node id into its filename
+        let mut root = if let Some(parent) = self.get_parent(id) { // find what comes *before* this name
+            self.get_path(parent, root)?
+        }
+        else {
+            root
+        };
+        root.push(self.get_name(id)?); // add our name to it
+        Some(root) // return the combo!
+    }
+
+    pub fn get_src_path(&self, id : usize) -> Option<PathBuf> {
+        self.get_path(id, self.sourcedir.clone())
+    }
+
+    pub fn get_name(&self, id : usize) -> Option<String> {
+        Some(match self.nodes.get(id)? {
+            Node::Directory { name, .. } => name.clone(),
+            Node::ObjectFile { name, .. } => name.clone(),
+            Node::DataFile { name, .. } => name.clone()
+        })
+    }
+
+    pub fn get_parent(&self, id : usize) -> Option<usize> {
+        match self.nodes.get(id)? {
+            Node::Directory { parent, .. } => parent,
+            Node::ObjectFile { parent, .. } => parent,
+            Node::DataFile { parent, .. } => parent
+        }.clone()
+    }
+
+    fn setchild(&mut self, child : usize, parent : usize) {
+        if let Some(parent) = self.nodes.get_mut(parent) {
+            if let Node::Directory {children, ..} = parent {
+                children.push(child);
+            }
+        }
+    }
+
+    pub fn load_dir(&mut self, childof : Option<usize>, resolver : &mut ResolverState) { // recursively load a source directory
+        let root = if let Some(childof) = childof { self.get_src_path(childof).unwrap() } else { self.sourcedir.clone() };
+        for child in std::fs::read_dir(root).unwrap() {
+            let child = child.unwrap();
+            let id;
+            if child.path().is_dir() {
+                self.nodes.push(Node::Directory {
+                    name : child.path().file_name().unwrap().to_str().unwrap().to_string(),
+                    parent : childof,
+                    children : vec![]
+                });
+                id = self.nodes.len() - 1;
+                self.load_dir(Some(id), resolver);
+            }
+            else {
+                self.nodes.push(self.load_file(childof, child.path(), resolver).unwrap());
+                id = self.nodes.len() - 1;
+            }
+            if let Some(childof) = childof {
+                self.setchild(id, childof);
+            }
+        }
+    }
+
+    fn load_file(&self, parent : Option<usize>, path : PathBuf, resolver : &mut ResolverState) -> std::io::Result<Node> {
         let mut opening_phrase = [0u8; 3];
         let count;
         {
@@ -64,41 +127,22 @@ impl Node {
             if opening_phrase[0] == b'[' && opening_phrase[2] == b']' {
                 match opening_phrase[1] {
                     b'!' | b'?' => {
-                        return Ok(Arc::new(Node::ObjectFile {
+                        return Ok(Node::ObjectFile {
                             expr : Self::parse_file(path.clone(), resolver)?,
-                            path,
-                            render : opening_phrase[1] == b'!'
-                        }));
-                    },
-                    b'@' => {
-                        return Ok(Arc::new(Node::DataFile {
-                            source_path_abs : std::path::absolute(&path).unwrap(),
-                            path,
-                            render : false
-                        }));
+                            name : path.file_name().unwrap().to_str().unwrap().to_string(),
+                            render : opening_phrase[1] == b'!',
+                            parent
+                        });
                     }
                     _ => {}
                 }
             }
         }
-        Ok(Arc::new(Node::DataFile {
+        Ok(Node::DataFile {
             source_path_abs : std::path::absolute(&path).unwrap(),
-            path,
-            render : true
-        }))
-    }
-
-    pub fn load_dir(path : PathBuf, resolver : &mut ResolverState) -> std::io::Result<Arc<Node>> {
-        let mut children = vec![];
-        for path in std::fs::read_dir(&path)? {
-            children.push(Self::load(path?.path(), resolver)?);
-        }
-        Ok(Arc::new(
-            Node::Directory {
-                path,
-                children
-            }
-        ))
+            name : path.file_name().unwrap().to_str().unwrap().to_string(),
+            parent
+        })
     }
 
     fn parse_file(path : PathBuf, resolver : &mut ResolverState) -> std::io::Result<SitixExpression> {
@@ -114,77 +158,102 @@ impl Node {
         Ok(ast)
     }
 
-    pub fn render(&self, interpreter : &mut InterpreterState) -> SitixResult<()> {
-        match self {
-            Self::Directory { path, children } => {
-                std::fs::create_dir_all(path).unwrap();
-                for child in children {
-                    child.render(interpreter)?;
-                }
-            },
-            Self::DataFile { path, source_path_abs, render } => {
-                if *render {
-                    std::fs::copy(source_path_abs, path).unwrap();
-                }
-            },
-            Self::ObjectFile { path, expr, render } => {
-                if *render {
-                    let mut file = std::fs::File::create(path).unwrap();
-                    let output = expr.interpret(interpreter)?.to_string();
-                    file.write(output.as_bytes());
+    fn render_node(&self, out : PathBuf, node_index : usize, i : &mut InterpreterState) -> Result<(), Box<dyn std::error::Error>> {
+        let path = self.get_path(node_index, out).unwrap();
+        if let Some(node) = self.nodes.get(node_index) {
+            match node {
+                Node::Directory { .. } => {
+                    std::fs::create_dir_all(path)?;
+                },
+                Node::ObjectFile { expr, render, .. } => {
+                    if *render {
+                        let mut file = std::fs::File::create(path)?;
+                        file.write_all(expr.interpret(i, node_index, self)?.to_string().as_bytes());
+                    }
+                },
+                Node::DataFile { source_path_abs, .. } => {
+                    std::fs::copy(source_path_abs, path);
                 }
             }
         }
         Ok(())
     }
 
-    pub fn search(&self, path : impl AsRef<Path>) -> Option<Arc<Self>> {
-        let path = path.as_ref();
-        match self {
-            Self::Directory { path : _, children } => {
+    pub fn render(&self, out : PathBuf, i : &mut InterpreterState) {
+        for node in 0..self.nodes.len() {
+            if let Err(e) = self.render_node(out.clone(), node, i) {
+                println!("{}", e);
+            }
+        }
+    }
+
+    fn find_uphill(&self, from : Option<usize>, name : String) -> Option<usize> { // from must be the PARENT of the node we're walking up from
+        if let Some(from) = from {
+            if let Some(Node::Directory { children, .. }) = self.nodes.get(from) {
                 for child in children {
-                    if child.get_path() == path {
-                        return Some(child.clone());
-                    }
-                    if let Some(out) = child.search(path) {
-                        return Some(out);
+                    if self.get_name(*child).unwrap() == name {
+                        return Some(*child);
                     }
                 }
-            },
-            _ => {}
+                return self.find_uphill(self.get_parent(from), name);
+            }
+        }
+        else {
+            for i in 0..self.nodes.len() {
+                if let None = self.get_parent(i) {
+                    if self.get_name(i).unwrap() == name {
+                        return Some(i);
+                    }
+                }
+            }
         }
         None
     }
 
-    fn get_path(&self) -> PathBuf {
-        match self {
-            Self::Directory { path, children : _ } => {
-                path.clone()
-            },
-            Self::DataFile { path, .. } => {
-                path.clone()
-            },
-            Self::ObjectFile { path, .. } => {
-                path.clone()
+    fn child_get(&self, parent : usize, name : String) -> Option<usize> {
+        if let Some(Node::Directory { children, .. }) = self.nodes.get(parent) {
+            for child in children {
+                if self.get_name(*child).unwrap() == name {
+                    return Some(*child);
+                }
             }
         }
+        None
     }
 
-    pub fn into_data(&self, i : &mut InterpreterState) -> SitixResult<Data> {
-        match self {
-            Self::Directory { path : _, children } => {
-                let mut childs = vec![];
-                for child in children {
-                    childs.push(child.into_data(i).unwrap());
-                }
-                Ok(Data::table_from_vec(childs))
-            },
-            Self::DataFile { path : _, source_path_abs, render : _ } => {
-                Ok(Data::String(std::fs::read_to_string(source_path_abs).unwrap()))
-            },
-            Self::ObjectFile { path : _, expr, render : _ } => {
-                expr.interpret(i)
+    pub fn search(&self, mut from : Option<usize>, name : String) -> Option<usize> {
+        let name : Vec<String> = name.split("/").map(|d| d.to_string()).collect();
+        if name[0] == "" {
+            from = None;
+        }
+        from = if let Some(from) = from { self.get_parent(from) } else { None };
+        let mut point = self.find_uphill(from, name[0].clone())?;
+        if name.len() > 1 {
+            for child_name in &name[1..] {
+                point = self.child_get(point, child_name.clone())?;
             }
         }
+        Some(point)
+    }
+
+    pub fn into_data(&self, node : usize, i : &mut InterpreterState) -> Option<Data> {
+        Some(match self.nodes.get(node)? {
+            Node::Directory { children, .. } => {
+                let mut to_vec = vec![];
+                for child in children {
+                    if let Some(data) = self.into_data(*child, i) {
+                        to_vec.push(data);
+                    }
+                }
+                Data::table_from_vec(to_vec)
+            },
+            Node::ObjectFile { expr, render, .. } => {
+                expr.interpret(i, node, self).unwrap()
+            },
+            Node::DataFile { source_path_abs, .. } => {
+                Data::String(std::fs::read_to_string(source_path_abs).unwrap())
+            }
+        })
     }
 }
+

@@ -87,14 +87,12 @@ fn main() {
                 let ffi = Arc::new(ffi);
 
                 let mut resolver = ResolverState::new(ffi.clone());
-                let dir = filesystem::Node::load_dir(PathBuf::from("."), &mut resolver).unwrap();
+                let mut project = filesystem::SitixProject::new(".".into());
+                project.load_dir(None, &mut resolver);
 
-                let mut interpreter = InterpreterState::new(ffi.clone(), dir.clone());
+                let mut interpreter = InterpreterState::new(ffi.clone());
 
-                std::fs::create_dir_all(&out).unwrap();
-                std::env::set_current_dir(&out).unwrap();
-
-                dir.render(&mut interpreter).unwrap();
+                project.render(out.into(), &mut interpreter);
             }
             else if metadata.file_type().is_file() {
                 panic!("at the moment, parsing a single file is not supported.");

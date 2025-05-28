@@ -1,0 +1,10 @@
+[?]
+this template file won't be rendered
+
+[
+let conf = include("includable.stx");
+global page_base = @(title, content) -]<title>[conf.project_name] | [title]</title>
+<div>
+[content]
+</div>
+[/]

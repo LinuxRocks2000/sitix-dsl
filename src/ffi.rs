@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 use crate::interpret::{ Data, SitixFunction, InterpreterState };
 use crate::error::*;
+use crate::filesystem::SitixProject;
 
 
 #[derive(Debug)]
@@ -41,7 +42,7 @@ impl ForeignFunctionInterface {
         }
     }
 
-    pub fn add_several_functions(&mut self, to_insert : &[(String, &'static dyn Fn(&mut InterpreterState, &[Data]) -> SitixResult<Data>)]) {
+    pub fn add_several_functions(&mut self, to_insert : &[(String, &'static dyn Fn(&mut InterpreterState, usize, &SitixProject, &[Data]) -> SitixResult<Data>)]) {
         for (name, data) in to_insert {
             self.add(name.to_string(), Data::Function(SitixFunction::Builtin(*data)));
         }
@@ -49,7 +50,7 @@ impl ForeignFunctionInterface {
 
     pub fn add_standard_api(&mut self) {
         self.add_several_functions(&[
-            ("print".to_string(), &|i, args| {
+            ("print".to_string(), &|i, _, _, args| {
                 for arg in args {
                     if let Ok(data) = i.deref(arg.clone()) {
                         print!("{} ", data.to_string());
@@ -58,9 +59,14 @@ impl ForeignFunctionInterface {
                 println!("");
                 Ok(Data::Nil)
             }),
-            ("include".to_string(), &|i, args| {
-                let file = i.root_node.search(i.deref(args[0].clone()).unwrap().to_string()).unwrap(); // TODO: make internally relative paths work
-                file.into_data(i)
+            ("include".to_string(), &|i, node, project, args| {
+                let old_export_table = i.export_table.clone();
+                i.export_table = HashMap::new();
+                let out_node = project.search(Some(node), i.deref(args[0].clone()).unwrap().to_string()).unwrap();
+                let ret = project.into_data(out_node, i).unwrap();
+                i.export_table = old_export_table;
+                println!("including {:?}", ret);
+                Ok(ret)
             })
         ]);
     }
