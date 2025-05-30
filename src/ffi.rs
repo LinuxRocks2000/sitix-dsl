@@ -42,7 +42,7 @@ impl ForeignFunctionInterface {
         }
     }
 
-    pub fn add_several_functions(&mut self, to_insert : &[(String, &'static dyn Fn(&mut InterpreterState, usize, &SitixProject, &[Data]) -> SitixResult<Data>)]) {
+    pub fn add_several_functions(&mut self, to_insert : &[(String, &'static (dyn Fn(&mut InterpreterState, usize, &SitixProject, &[Data]) -> SitixResult<Data> + Send + Sync))]) {
         for (name, data) in to_insert {
             self.add(name.to_string(), Data::Function(SitixFunction::Builtin(*data)));
         }
@@ -65,7 +65,6 @@ impl ForeignFunctionInterface {
                 let out_node = project.search(Some(node), i.deref(args[0].clone()).unwrap().to_string()).unwrap();
                 let ret = project.into_data(out_node, i).unwrap();
                 i.export_table = old_export_table;
-                println!("including {:?}", ret);
                 Ok(ret)
             })
         ]);

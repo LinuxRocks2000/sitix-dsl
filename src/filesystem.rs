@@ -8,6 +8,7 @@
 
 use std::path::{PathBuf, Path};
 use std::sync::Arc;
+use std::collections::HashMap;
 use crate::ast::SitixExpression;
 use std::io::{Write, Read};
 use crate::resolve::ResolverState;
@@ -16,11 +17,13 @@ use crate::parse;
 use crate::inflate::*;
 use crate::error::*;
 use crate::interpret::{ InterpreterState, Data };
+use inotify::{ Inotify, WatchMask, WatchDescriptor };
 
 
 pub struct SitixProject {
     nodes : Vec<Node>,
-    sourcedir : PathBuf
+    sourcedir : PathBuf,
+    inotify_watches : HashMap<WatchDescriptor, usize> // map watch descriptors to nodes.
 }
 
 
@@ -41,7 +44,8 @@ pub enum Node {
         name : String,
         parent : Option<usize>,
         source_path_abs : PathBuf, // absolute source path
-    }
+    },
+    Deleted // TODO: make this not awful
 }
 
 
@@ -49,7 +53,8 @@ impl SitixProject {
     pub fn new(sourcedir : PathBuf) -> Self {
         Self {
             nodes : vec![],
-            sourcedir
+            sourcedir,
+            inotify_watches : HashMap::new()
         }
     }
 
@@ -72,7 +77,8 @@ impl SitixProject {
         Some(match self.nodes.get(id)? {
             Node::Directory { name, .. } => name.clone(),
             Node::ObjectFile { name, .. } => name.clone(),
-            Node::DataFile { name, .. } => name.clone()
+            Node::DataFile { name, .. } => name.clone(),
+            Node::Deleted => { return None; }
         })
     }
 
@@ -80,7 +86,8 @@ impl SitixProject {
         match self.nodes.get(id)? {
             Node::Directory { parent, .. } => parent,
             Node::ObjectFile { parent, .. } => parent,
-            Node::DataFile { parent, .. } => parent
+            Node::DataFile { parent, .. } => parent,
+            Node::Deleted => { return None; }
         }.clone()
     }
 
@@ -92,7 +99,7 @@ impl SitixProject {
         }
     }
 
-    pub fn load_dir(&mut self, childof : Option<usize>, resolver : &mut ResolverState) { // recursively load a source directory
+    pub fn load_dir(&mut self, childof : Option<usize>, resolver : &mut ResolverState) -> Result<(), Box<dyn std::error::Error>> { // recursively load a source directory
         let root = if let Some(childof) = childof { self.get_src_path(childof).unwrap() } else { self.sourcedir.clone() };
         for child in std::fs::read_dir(root).unwrap() {
             let child = child.unwrap();
@@ -104,19 +111,20 @@ impl SitixProject {
                     children : vec![]
                 });
                 id = self.nodes.len() - 1;
-                self.load_dir(Some(id), resolver);
+                self.load_dir(Some(id), resolver)?;
             }
             else {
-                self.nodes.push(self.load_file(childof, child.path(), resolver).unwrap());
+                self.nodes.push(self.load_file(childof, child.path(), resolver)?);
                 id = self.nodes.len() - 1;
             }
             if let Some(childof) = childof {
                 self.setchild(id, childof);
             }
         }
+        Ok(())
     }
 
-    fn load_file(&self, parent : Option<usize>, path : PathBuf, resolver : &mut ResolverState) -> std::io::Result<Node> {
+    fn load_file(&self, parent : Option<usize>, path : PathBuf, resolver : &mut ResolverState) -> Result<Node, Box<dyn std::error::Error>> {
         let mut opening_phrase = [0u8; 3];
         let count;
         {
@@ -145,14 +153,22 @@ impl SitixProject {
         })
     }
 
-    fn parse_file(path : PathBuf, resolver : &mut ResolverState) -> std::io::Result<SitixExpression> {
+    pub fn track_file(&mut self, parent : Option<usize>, name : &str, resolver : &mut ResolverState) -> Result<(), Box<dyn std::error::Error>> {
+        let mut path = if let Some(parent) = parent { self.get_src_path(parent).unwrap() } else { self.sourcedir.clone() };
+        path.push(name);
+        let file = self.load_file(parent, path, resolver)?;
+        self.nodes.push(file);
+        Ok(())
+    }
+
+    fn parse_file(path : PathBuf, resolver : &mut ResolverState) -> Result<SitixExpression, Box<dyn std::error::Error>> {
         let file = lexer::FileReader::open(path);
-        let tokens = lexer::lexer(file).unwrap();
+        let tokens = lexer::lexer(file)?;
 
         let mut token_buffer = parse::TokenReader::new(tokens);
-        let mut inflated = SitixTree::root(&mut token_buffer).unwrap();
+        let mut inflated = SitixTree::root(&mut token_buffer)?;
 
-        let ast = inflated.parse().unwrap();
+        let ast = inflated.parse()?;
 
         let ast = ast.resolve(resolver);
         Ok(ast)
@@ -173,7 +189,8 @@ impl SitixProject {
                 },
                 Node::DataFile { source_path_abs, .. } => {
                     std::fs::copy(source_path_abs, path);
-                }
+                },
+                Node::Deleted => panic!("unreachable")
             }
         }
         Ok(())
@@ -187,21 +204,30 @@ impl SitixProject {
         }
     }
 
-    fn find_uphill(&self, from : Option<usize>, name : String) -> Option<usize> { // from must be the PARENT of the node we're walking up from
-        if let Some(from) = from {
-            if let Some(Node::Directory { children, .. }) = self.nodes.get(from) {
+    fn find_uphill(&self, from : Option<usize>, name : &str) -> Option<usize> { // from must be the PARENT of the node we're walking up from
+        if let Some(child) = self.child_get(from, name) {
+            return Some(child);
+        }
+        else if let Some(from) = from {
+            return self.find_uphill(self.get_parent(from), name);
+        }
+        None
+    }
+
+    pub fn child_get(&self, parent : Option<usize>, name : &str) -> Option<usize> {
+        if let Some(parent) = parent {
+            if let Some(Node::Directory { children, .. }) = self.nodes.get(parent) {
                 for child in children {
                     if self.get_name(*child).unwrap() == name {
                         return Some(*child);
                     }
                 }
-                return self.find_uphill(self.get_parent(from), name);
             }
         }
         else {
             for i in 0..self.nodes.len() {
-                if let None = self.get_parent(i) {
-                    if self.get_name(i).unwrap() == name {
+                if let Some(node_name) = self.get_name(i) {
+                    if node_name == name {
                         return Some(i);
                     }
                 }
@@ -210,50 +236,73 @@ impl SitixProject {
         None
     }
 
-    fn child_get(&self, parent : usize, name : String) -> Option<usize> {
-        if let Some(Node::Directory { children, .. }) = self.nodes.get(parent) {
-            for child in children {
-                if self.get_name(*child).unwrap() == name {
-                    return Some(*child);
-                }
-            }
-        }
-        None
-    }
-
     pub fn search(&self, mut from : Option<usize>, name : String) -> Option<usize> {
         let name : Vec<String> = name.split("/").map(|d| d.to_string()).collect();
-        if name[0] == "" {
-            from = None;
-        }
-        from = if let Some(from) = from { self.get_parent(from) } else { None };
-        let mut point = self.find_uphill(from, name[0].clone())?;
+        let starting_point = if name[0] == "" { // leading slash
+            None
+        } else {
+            self.find_uphill(from, &name[0])
+        };
         if name.len() > 1 {
-            for child_name in &name[1..] {
-                point = self.child_get(point, child_name.clone())?;
+            let mut cont = starting_point;
+            for subname in &name[1..] {
+                cont = self.child_get(cont, &subname);
             }
+            cont
+        } else {
+            starting_point
         }
-        Some(point)
     }
 
-    pub fn into_data(&self, node : usize, i : &mut InterpreterState) -> Option<Data> {
-        Some(match self.nodes.get(node)? {
+    pub fn into_data(&self, node : usize, i : &mut InterpreterState) -> SitixResult<Data> {
+        Ok(match self.nodes.get(node).unwrap() {
             Node::Directory { children, .. } => {
                 let mut to_vec = vec![];
                 for child in children {
-                    if let Some(data) = self.into_data(*child, i) {
-                        to_vec.push(data);
-                    }
+                    to_vec.push(self.into_data(*child, i)?);
                 }
                 Data::table_from_vec(to_vec)
             },
             Node::ObjectFile { expr, render, .. } => {
-                expr.interpret(i, node, self).unwrap()
+                expr.interpret(i, node, self)?
             },
             Node::DataFile { source_path_abs, .. } => {
                 Data::String(std::fs::read_to_string(source_path_abs).unwrap())
-            }
+            },
+            Node::Deleted => panic!("unreachable")
         })
+    }
+
+    pub fn setup_inotifier(&mut self) -> Inotify { // build an inotify watch tree by visiting every node
+        let mut inotify = Inotify::init().unwrap();
+        inotify.watches().add(&self.sourcedir, WatchMask::CREATE | WatchMask::MOVED_TO | WatchMask::MOVED_FROM).expect("failed to set up file watcher");
+        for node_index in 0..self.nodes.len() {
+            let watch = inotify.watches().add(self.get_src_path(node_index).unwrap(), WatchMask::ALL_EVENTS).expect("failed to set up file watcher");
+            self.inotify_watches.insert(watch, node_index);
+        }
+        inotify
+    }
+
+    pub fn search_watch_descriptor(&self, wd : &WatchDescriptor) -> Option<usize> {
+        self.inotify_watches.get(wd).copied()
+    }
+
+    pub fn get_source_dir(&self) -> PathBuf {
+        self.sourcedir.clone()
+    }
+
+    pub fn delete(&mut self, node : usize) {
+        self.nodes[node] = Node::Deleted;
+        for ind in 0..self.nodes.len() {
+            if let Some(parent) = self.get_parent(ind) {
+                if let Some(Node::Directory { children, .. }) = self.nodes.get_mut(parent) {
+                    children.retain(|child| {
+                        *child != node
+                    });
+                }
+            }
+        }
+        self.inotify_watches.retain(|_, n| *n != node);
     }
 }
 

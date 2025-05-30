@@ -16,7 +16,8 @@ pub enum TreeChild {
 #[derive(Debug)]
 pub enum BlockMode {
     Main,
-    Else
+    Else,
+    List // the [,] block
 }
 
 #[derive(Debug)]
@@ -66,6 +67,15 @@ impl SitixTree {
                                     return Err(Error::expected_abstract("else contents", tokens.get_last_span()));
                                 }
                             }
+                            else if let BlockTermMode::Continue(BlockMode::List) = ext_mode {
+                                loop {
+                                    let (mode, data) = Self::parse_contained(tokens)?;
+                                    block_children.push((BlockMode::List, data));
+                                    if let BlockTermMode::Closing = mode {
+                                        break;
+                                    }
+                                }
+                            }
                         }
                         break 'parse_block;
                     }
@@ -82,6 +92,10 @@ impl SitixTree {
                             term_mode = BlockTermMode::Continue(BlockMode::Else);
                             break 'mainloop;
                         },
+                        TokenType::Comma => {
+                            term_mode = BlockTermMode::Continue(BlockMode::List);
+                            break 'mainloop;
+                        }
                         _ => {}
                     }
                 }

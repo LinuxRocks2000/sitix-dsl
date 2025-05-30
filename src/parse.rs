@@ -205,18 +205,21 @@ impl crate::inflate::SitixTree {
         }
         else { // this *would* be an eof, but there's a chance for recovery!
             if let Some((BlockMode::Main, children)) = self.children.get_mut(0) {
-                let ret : SitixResult<Vec<SitixExpression>> = children.iter_mut().map(|thing| {
-                    match thing {
-                        TreeChild::Text(text, span) => Ok(SitixExpression::Text(text.clone(), span.clone())),
-                        TreeChild::Tree(tree) => tree.parse() // AHAHAHAA RECURSION HAHAAHA BWAHAALKHASDLFHASDLFH
-                    }
-                }).collect();
-                Ok(Expression::SitixExpression(ret?))
+                Ok(Expression::SitixExpression(Self::try_parse_ext(children)?))
             }
             else {
                 Err(self.content.unexpected_eof())
             }
         }
+    }
+
+    fn try_parse_ext(children : &mut Vec<TreeChild>) -> SitixResult<Vec<SitixExpression>> {
+        children.iter_mut().map(|thing| {
+            match thing {
+                TreeChild::Text(text, span) => Ok(SitixExpression::Text(text.clone(), span.clone())),
+                TreeChild::Tree(tree) => tree.parse() // AHAHAHAA RECURSION HAHAAHA BWAHAALKHASDLFHASDLFH
+            }
+        }).collect()
     }
 
     fn parse_csl(&mut self, end : TokenType) -> SitixResult<Vec<Expression>> { // Comma Separated List
@@ -282,6 +285,16 @@ impl crate::inflate::SitixTree {
                 if let Err(_) = self.content.peek() {
                     if self.children.len() > 0 {
                         args.push(self.parse_expression()?);
+                    }
+                    if self.children.len() > 1 {
+                        for (mode, contents) in self.children[1..].iter_mut() {
+                            if let BlockMode::List = mode {
+                                args.push(Expression::SitixExpression(Self::try_parse_ext(contents)?));
+                            }
+                            else {
+                                panic!("expected list contents (todo: make this a real error)");
+                            }
+                        }
                     }
                 }
                 return Ok(Expression::Call(Box::new(lhs), args));

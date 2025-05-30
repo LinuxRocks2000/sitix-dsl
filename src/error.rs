@@ -76,6 +76,15 @@ impl Error {
         }
     }
 
+    pub fn invalid_argument_count(at : Span) -> Error {
+        Error {
+            span : at,
+            tp : "Runtime".to_string(),
+            reason : format!("Invalid number of arguments"),
+            cause : None
+        }
+    }
+
     pub fn bad_argument(at : Token) -> Error {
         Error {
             span : at.span,

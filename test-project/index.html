@@ -1,0 +1,12 @@
+[!][
+let template = include("templates/example.stx");
+global posts = include("posts");
+
+template.page("my website!") -]
+
+[each posts -> post -]
+<p>
+	[post.content]
+</p>
+[/]
+[/]

@@ -1,10 +1,22 @@
 [?]
-this template file won't be rendered
+// this template file won't be rendered
 
-[
-let conf = include("includable.stx");
-global page_base = @(title, content) -]<title>[conf.project_name] | [title]</title>
-<div>
-[content]
-</div>
+// grab the global config
+[global config = include("config.stx")]
+
+
+// normal html boilerplate
+[global boilerplate = @(head, body) -]
+	<!DOCTYPE html>
+	<html>
+		<head>[head]</head>
+		<body>[body]</body>
+	</html>
+[/]
+
+[global page = @(title, content) boilerplate() -]
+	<title>[title]</title>
+	<meta charset="utf-8" />
+[,]
+	[content]
 [/]

@@ -16,7 +16,7 @@ use crate::filesystem::{SitixProject, self};
 
 #[derive(Clone)]
 pub enum SitixFunction {
-    Builtin(&'static dyn Fn(&mut InterpreterState, usize, &SitixProject, &[Data]) -> SitixResult<Data>),
+    Builtin(&'static (dyn Fn(&mut InterpreterState, usize, &SitixProject, &[Data]) -> SitixResult<Data> + Send + Sync)),
     UserDefined(Vec<(usize, Span)>, Box<Expression>)
 }
 
@@ -430,7 +430,7 @@ impl Expression {
                     },
                     SitixFunction::UserDefined(req_args, contents) => {
                         if args.len() != req_args.len() {
-                            panic!("invalid argument count (TODO: make this a real error)");
+                            return Err(Error::invalid_argument_count(func.blame()));
                         }
                         for ((id, span), content) in req_args.into_iter().zip(to_args.into_iter()) {
                             let content = i.deref(content).map_err(|e| e.weld(span.clone()))?;
