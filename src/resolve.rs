@@ -50,12 +50,8 @@ impl ResolverState {
         self.ffi.find(name)
     }
 
-    pub fn vomit(self) -> usize {
-        self.top_var
-    }
-
-    pub fn settop(&mut self, top : usize) {
-        self.top_var = top;
+    pub fn seal(&mut self) { // discard the symbol table so we can begin resolving another file in the same project
+        self.scopes.clear();
     }
 }
 

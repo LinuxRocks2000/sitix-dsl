@@ -12,8 +12,6 @@ this doesn't extend to single files because all the practical uses of Sitix are 
 an unlikely and useless operation mode.
 
 need to,
-- add the development webserver (with an inotify stack so it can respond in real time to changes)
-  - don't make the same mistake as sitix watchdog; mark what updates need to be made *before* doing them, so we don't get caught in a recursion
 - add dynamo features and dynamo featuregating
   - dynamo essentially prevents sitix files from being cached
   - and provides a bunch of ffi features, including routing magic

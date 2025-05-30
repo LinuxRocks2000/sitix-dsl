@@ -162,15 +162,16 @@ impl SitixProject {
     }
 
     fn parse_file(path : PathBuf, resolver : &mut ResolverState) -> Result<SitixExpression, Box<dyn std::error::Error>> {
-        let file = lexer::FileReader::open(path);
+        let file = lexer::FileReader::open(&path);
         let tokens = lexer::lexer(file)?;
 
         let mut token_buffer = parse::TokenReader::new(tokens);
         let mut inflated = SitixTree::root(&mut token_buffer)?;
 
-        let ast = inflated.parse()?;
+        let ast = inflated.parse(Some(path.file_name().unwrap().to_str().unwrap().to_string()))?;
 
         let ast = ast.resolve(resolver);
+        resolver.seal();
         Ok(ast)
     }
 

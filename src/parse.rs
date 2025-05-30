@@ -5,6 +5,7 @@ use crate::ast::*;
 use crate::inflate::TreeChild;
 use crate::inflate::BlockMode;
 use crate::error::{ Error, SitixResult };
+use crate::filesystem::SitixProject;
 
 
 #[derive(Debug, Clone)]
@@ -144,7 +145,7 @@ impl crate::inflate::SitixTree {
                             let ret : SitixResult<Vec<SitixExpression>> = children.iter_mut().map(|thing| {
                                 match thing {
                                     TreeChild::Text(text, span) => Ok(SitixExpression::Text(text.clone(), span.clone())),
-                                    TreeChild::Tree(tree) => tree.parse() // AHAHAHAA RECURSION HAHAAHA BWAHAALKHASDLFHASDLFH
+                                    TreeChild::Tree(tree) => tree.parse(None) // AHAHAHAA RECURSION HAHAAHA BWAHAALKHASDLFHASDLFH
                                                                           // [a bit later] sometimes I read comments I wrote and then I feel sad
                                 }
                             }).collect();
@@ -217,7 +218,7 @@ impl crate::inflate::SitixTree {
         children.iter_mut().map(|thing| {
             match thing {
                 TreeChild::Text(text, span) => Ok(SitixExpression::Text(text.clone(), span.clone())),
-                TreeChild::Tree(tree) => tree.parse() // AHAHAHAA RECURSION HAHAAHA BWAHAALKHASDLFHASDLFH
+                TreeChild::Tree(tree) => tree.parse(None) // AHAHAHAA RECURSION HAHAAHA BWAHAALKHASDLFHASDLFH
             }
         }).collect()
     }
@@ -523,12 +524,33 @@ impl crate::inflate::SitixTree {
         })
     }
 
-    pub fn parse(&mut self) -> SitixResult<SitixExpression> { // why use SitixExpression here?
+    pub fn parse(&mut self, file_data : Option<String>) -> SitixResult<SitixExpression> { // why use SitixExpression here?
         // I flipflopped on this a bit, but in the
         // end it's simpler to get a sitix expression from this function
         // than transform a Vec<Statement> into a SitixExpression. It is
         // guaranteed to *always* return SitixExpression::Block(_).
-        Ok(SitixExpression::Block(self.parse_block()?))
+        // [later] I'm pretty glad I chose this pattern! It makes the following trickery a lot simpler.
+        if let Some(filename) = file_data {
+            let Block { inner : old_inner, tail, span } = self.parse_block()?;
+            let mut inner = vec![
+                Statement::UnboundGlobalAssign(
+                    Span::identity(),
+                    "__filename__".to_string(),
+                    Box::new(Expression::Literal(Span::identity(),
+                        Literal::String(filename)
+                    ))
+                )
+            ];
+            inner.extend(old_inner);
+            Ok(SitixExpression::Block(Block {
+                inner,
+                tail,
+                span
+            }))
+        }
+        else {
+            Ok(SitixExpression::Block(self.parse_block()?))
+        }
     }
 }
 

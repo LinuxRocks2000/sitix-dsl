@@ -78,7 +78,7 @@ pub fn lexer(mut buffer : FileReader) -> SitixResult<Vec<Token>> { // please for
                 buffer.skip(char::is_whitespace)?;
                 'inner_expression : while let Ok(c) = buffer.next() {
                     buffer.open_span();
-                    if c.is_alphabetic() { // parse an ident
+                    if c.is_alphabetic() || c == '_' { // parse an ident
                         let mut idb = String::new();
                         idb.push(c);
                         while let Ok(c) = buffer.peek() {

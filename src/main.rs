@@ -80,9 +80,9 @@ struct Cli {
 }
 
 
-fn handler(request : &rouille::Request, project : &Arc<Mutex<SitixProject>>, interpreter : &Arc<Mutex<InterpreterState>>) -> rouille::Response {
+fn handler(request : &rouille::Request, project : &Arc<Mutex<SitixProject>>) -> rouille::Response {
     let project = project.lock().unwrap();
-    let mut interpreter = interpreter.lock().unwrap();
+    let mut interpreter = InterpreterState::new_with_standard_ffi();
     let node = if let Some(node) = project.search(None, request.url()) { node }
                 else if let Some(node) = project.search(None, request.url() + "index.html") {node}
                 else { return rouille::Response::empty_404(); };
@@ -148,8 +148,6 @@ fn main() {
 
                 let project = Arc::new(Mutex::new(project));
 
-                let interpreter = Arc::new(Mutex::new(InterpreterState::new(ffi.clone())));
-
                 std::thread::spawn({
                     let project_clone = project.clone();
                     let mut notify = project_clone.lock().unwrap().setup_inotifier();
@@ -193,7 +191,7 @@ fn main() {
 
                 println!("Starting development webserver at http://localhost:8080/");
                 rouille::start_server("0.0.0.0:8080", move |request| {
-                    handler(request, &project, &interpreter)
+                    handler(request, &project)
                 });
             }
             else if metadata.file_type().is_file() {
