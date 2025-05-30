@@ -10,13 +10,12 @@ use std::sync::Arc;
 use crate::ffi::*;
 use crate::error::*;
 use crate::utility::Span;
-use crate::resolve::*;
-use crate::filesystem::{SitixProject, self};
+use crate::filesystem::SitixProject;
 
 
 #[derive(Clone)]
 pub enum SitixFunction {
-    Builtin(&'static (dyn Fn(&mut InterpreterState, usize, &SitixProject, &[Data]) -> SitixResult<Data> + Send + Sync)),
+    Builtin(&'static (dyn Fn(&mut InterpreterState, usize, &SitixProject, &[Data]) -> SitixPartialResult<Data> + Send + Sync)),
     UserDefined(Vec<(usize, Span)>, Box<Expression>)
 }
 
@@ -179,6 +178,25 @@ impl Data {
         }
         Data::Table(tree)
     }
+
+    pub fn call_fun(&self, i : &mut InterpreterState, args : &[Data], node : usize, project : &SitixProject) -> SitixPartialResult<Data> {
+        match self.force_function()? {
+            SitixFunction::Builtin(built_in) => {
+                built_in(i, node, project, &args)
+            },
+            SitixFunction::UserDefined(req_args, contents) => {
+                if args.len() != req_args.len() {
+                    return Err(PartialError::invalid_argument_count());
+                }
+                for ((id, _), content) in req_args.into_iter().zip(args.into_iter()) {
+                    let content = i.deref(content.clone())?;
+                    i.create(id, content);
+                }
+                let ret = contents.interpret(i, node, project);
+                ret.map_err(|e| e.discard_context())
+            }
+        }
+    }
 }
 
 
@@ -257,12 +275,6 @@ impl InterpreterState {
                 }
             },
             _ => Ok(data)
-        }
-    }
-
-    pub fn merge_symbols(&mut self, other : &InterpreterState) {
-        for (index, var) in &other.variables {
-            self.create(*index, var.clone());
         }
     }
 }
@@ -424,22 +436,7 @@ impl Expression {
                 for arg in args {
                     to_args.push(arg.interpret(i, node, project)?);
                 }
-                match fun.force_function().map_err(|e| e.weld(func.blame()))? {
-                    SitixFunction::Builtin(built_in) => {
-                        built_in(i, node, project, &to_args)
-                    },
-                    SitixFunction::UserDefined(req_args, contents) => {
-                        if args.len() != req_args.len() {
-                            return Err(Error::invalid_argument_count(func.blame()));
-                        }
-                        for ((id, span), content) in req_args.into_iter().zip(to_args.into_iter()) {
-                            let content = i.deref(content).map_err(|e| e.weld(span.clone()))?;
-                            i.create(id, content);
-                        }
-                        let ret = contents.interpret(i, node, project);
-                        ret
-                    }
-                }
+                fun.call_fun(i, &to_args, node, project).map_err(|e| e.weld(func.blame()))
             },
             Self::Function(_, args, contents) => {
                 Ok(Data::Function(SitixFunction::UserDefined(args.clone(), contents.clone())))
@@ -524,7 +521,7 @@ impl Unary {
 }
 
 impl Literal {
-    fn interpret(&self, _ : &mut InterpreterState, node : usize, project : &SitixProject) -> SitixResult<Data> {
+    fn interpret(&self, _ : &mut InterpreterState, _ : usize, _ : &SitixProject) -> SitixResult<Data> {
         Ok(match self {
             Self::Ident(_) => todo!("identifier lookup"),
             Self::String(s) => Data::String(s.clone()),

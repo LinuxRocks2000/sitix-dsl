@@ -103,7 +103,6 @@ fn handler(request : &rouille::Request, project : &Arc<Mutex<SitixProject>>) -> 
             return rouille::Response::text(e.to_string());
         }
     }
-    rouille::Response::empty_404()
 }
 
 
@@ -158,12 +157,6 @@ fn main() {
                             for event in events {
                                 let mut project = project_clone.lock().unwrap();
                                 let node = project.search_watch_descriptor(&event.wd);
-                                let path = if let Some(node) = node {
-                                    if let Some(path) = project.get_src_path(node) { path } else { project.get_source_dir() }
-                                }
-                                else {
-                                    project.get_source_dir()
-                                };
                                 if event.mask.contains(EventMask::DELETE_SELF) {
                                     if let Some(node) = node {
                                         project.delete(node);

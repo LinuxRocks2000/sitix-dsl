@@ -12,8 +12,7 @@ this doesn't extend to single files because all the practical uses of Sitix are 
 an unlikely and useless operation mode.
 
 need to,
-- add dynamo features and dynamo featuregating
-  - dynamo essentially prevents sitix files from being cached
-  - and provides a bunch of ffi features, including routing magic
+- add dynamo features
+  - dynamo essentially provides a bunch of ffi features, including routing magic
 - add the bytecode generator
 - build the vm!

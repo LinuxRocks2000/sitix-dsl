@@ -36,13 +36,7 @@ impl ForeignFunctionInterface {
         Some(self.index_to_object.get(&index)?.clone())
     }
 
-    pub fn add_several(&mut self, to_insert : &[(String, Data)]) {
-        for (name, data) in to_insert {
-            self.add(name.clone(), data.clone());
-        }
-    }
-
-    pub fn add_several_functions(&mut self, to_insert : &[(String, &'static (dyn Fn(&mut InterpreterState, usize, &SitixProject, &[Data]) -> SitixResult<Data> + Send + Sync))]) {
+    pub fn add_several_functions(&mut self, to_insert : &[(String, &'static (dyn Fn(&mut InterpreterState, usize, &SitixProject, &[Data]) -> SitixPartialResult<Data> + Send + Sync))]) {
         for (name, data) in to_insert {
             self.add(name.to_string(), Data::Function(SitixFunction::Builtin(*data)));
         }
@@ -66,7 +60,17 @@ impl ForeignFunctionInterface {
                 let ret = project.into_data(out_node, i).unwrap();
                 i.export_table = old_export_table;
                 Ok(ret)
-            })
+            }),
+            /*("quicksort".to_string(), &|i, node, project, args| { // quicksort(table, sort_function)
+                if args.len() == 2 {
+                    if let Ok(Data::Table(table)) = i.deref(args[0].clone()) {
+                        if let Ok(func) = i.deref(args[1].clone()) {
+                            func.call_fun(i, args, node, project)?;
+                        }
+                    }
+                }
+                Ok(Data::Nil)
+            })*/
         ]);
     }
 }

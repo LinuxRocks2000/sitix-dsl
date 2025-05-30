@@ -6,8 +6,7 @@
 // SitixRootTree
 
 
-use std::path::{PathBuf, Path};
-use std::sync::Arc;
+use std::path::PathBuf;
 use std::collections::HashMap;
 use crate::ast::SitixExpression;
 use std::io::{Write, Read};
@@ -185,11 +184,11 @@ impl SitixProject {
                 Node::ObjectFile { expr, render, .. } => {
                     if *render {
                         let mut file = std::fs::File::create(path)?;
-                        file.write_all(expr.interpret(i, node_index, self)?.to_string().as_bytes());
+                        file.write_all(expr.interpret(i, node_index, self)?.to_string().as_bytes()).unwrap();
                     }
                 },
                 Node::DataFile { source_path_abs, .. } => {
-                    std::fs::copy(source_path_abs, path);
+                    std::fs::copy(source_path_abs, path).unwrap();
                 },
                 Node::Deleted => panic!("unreachable")
             }
@@ -237,7 +236,7 @@ impl SitixProject {
         None
     }
 
-    pub fn search(&self, mut from : Option<usize>, name : String) -> Option<usize> {
+    pub fn search(&self, from : Option<usize>, name : String) -> Option<usize> {
         let name : Vec<String> = name.split("/").map(|d| d.to_string()).collect();
         let starting_point = if name[0] == "" { // leading slash
             None
@@ -264,7 +263,7 @@ impl SitixProject {
                 }
                 Data::table_from_vec(to_vec)
             },
-            Node::ObjectFile { expr, render, .. } => {
+            Node::ObjectFile { expr, .. } => {
                 expr.interpret(i, node, self)?
             },
             Node::DataFile { source_path_abs, .. } => {
@@ -275,7 +274,7 @@ impl SitixProject {
     }
 
     pub fn setup_inotifier(&mut self) -> Inotify { // build an inotify watch tree by visiting every node
-        let mut inotify = Inotify::init().unwrap();
+        let inotify = Inotify::init().unwrap();
         inotify.watches().add(&self.sourcedir, WatchMask::CREATE | WatchMask::MOVED_TO | WatchMask::MOVED_FROM).expect("failed to set up file watcher");
         for node_index in 0..self.nodes.len() {
             let watch = inotify.watches().add(self.get_src_path(node_index).unwrap(), WatchMask::ALL_EVENTS).expect("failed to set up file watcher");
@@ -286,10 +285,6 @@ impl SitixProject {
 
     pub fn search_watch_descriptor(&self, wd : &WatchDescriptor) -> Option<usize> {
         self.inotify_watches.get(wd).copied()
-    }
-
-    pub fn get_source_dir(&self) -> PathBuf {
-        self.sourcedir.clone()
     }
 
     pub fn delete(&mut self, node : usize) {

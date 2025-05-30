@@ -5,7 +5,6 @@ use crate::ast::*;
 use crate::inflate::TreeChild;
 use crate::inflate::BlockMode;
 use crate::error::{ Error, SitixResult };
-use crate::filesystem::SitixProject;
 
 
 #[derive(Debug, Clone)]

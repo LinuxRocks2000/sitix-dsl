@@ -76,31 +76,12 @@ impl Error {
         }
     }
 
-    pub fn invalid_argument_count(at : Span) -> Error {
-        Error {
-            span : at,
-            tp : "Runtime".to_string(),
-            reason : format!("Invalid number of arguments"),
-            cause : None
-        }
-    }
-
     pub fn bad_argument(at : Token) -> Error {
         Error {
             span : at.span,
             tp : "Parsing".to_string(),
             reason : "Invalid Argument".to_string(),
             cause : None
-        }
-    }
-
-    pub fn wrap<T>(mut self, around : SitixResult<T>) -> SitixResult<T> {
-        if let Err(e) = around {
-            self.cause = Some(Box::new(e));
-            Err(self)
-        }
-        else {
-            around
         }
     }
 
@@ -113,6 +94,13 @@ impl Error {
             cause.debug_inner(f)?;
         }
         Ok(())
+    }
+
+    pub fn discard_context(self) -> PartialError {
+        PartialError {
+            reason : self.reason,
+            tp : self.tp
+        }
     }
 }
 
@@ -178,6 +166,13 @@ impl PartialError {
         PartialError {
             tp : "Runtime".to_string(),
             reason : format!("Invalid index {}", index)
+        }
+    }
+
+    pub fn invalid_argument_count() -> PartialError {
+        PartialError {
+            tp : "Runtime".to_string(),
+            reason : format!("Invalid number of arguments")
         }
     }
 }
