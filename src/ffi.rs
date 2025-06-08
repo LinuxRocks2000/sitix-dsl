@@ -61,6 +61,18 @@ impl ForeignFunctionInterface {
                 i.export_table = old_export_table;
                 Ok(ret)
             }),
+            ("get_page_data".to_string(), &|i, node, project, args| {
+                if let Some(pagedat) = project.get_page_data(node, args[0].to_string()) {
+                    Ok(pagedat)
+                }
+                else {
+                    Ok(args[1].clone())
+                }
+            }),
+            ("set_page_data".to_string(), &|i, node, project, args| {
+                project.set_page_data(node, args[0].to_string(), args[1].clone());
+                Ok(Data::Nil)
+            }),
             /*("quicksort".to_string(), &|i, node, project, args| { // quicksort(table, sort_function)
                 if args.len() == 2 {
                     if let Ok(Data::Table(table)) = i.deref(args[0].clone()) {

@@ -17,12 +17,14 @@ use crate::inflate::*;
 use crate::error::*;
 use crate::interpret::{ InterpreterState, Data };
 use inotify::{ Inotify, WatchMask, WatchDescriptor };
+use std::sync::{ Arc, Mutex };
 
 
 pub struct SitixProject {
     nodes : Vec<Node>,
     sourcedir : PathBuf,
-    inotify_watches : HashMap<WatchDescriptor, usize> // map watch descriptors to nodes.
+    inotify_watches : HashMap<WatchDescriptor, usize>, // map watch descriptors to nodes.
+    page_data : Arc<Mutex<HashMap<usize, HashMap<String, Data>>>>
 }
 
 
@@ -53,7 +55,8 @@ impl SitixProject {
         Self {
             nodes : vec![],
             sourcedir,
-            inotify_watches : HashMap::new()
+            inotify_watches : HashMap::new(),
+            page_data : Arc::new(Mutex::new(HashMap::new()))
         }
     }
 
@@ -299,6 +302,18 @@ impl SitixProject {
             }
         }
         self.inotify_watches.retain(|_, n| *n != node);
+    }
+
+    pub fn get_page_data(&self, node : usize, key : String) -> Option<Data> {
+        self.page_data.lock().unwrap().get(&node)?.get(&key).cloned()
+    }
+
+    pub fn set_page_data(&self, node : usize, key : String, value : Data) {
+        let mut pgdat = self.page_data.lock().unwrap();
+        if let None = pgdat.get(&node) {
+            pgdat.insert(node, HashMap::new());
+        }
+        pgdat.get_mut(&node).unwrap().insert(key, value);
     }
 }
 

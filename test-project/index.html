@@ -8,3 +8,16 @@ template.page("my website!") -]
 <a href="[post.__filename__]">[post.title]</a>
 [/]
 [/]
+
+[
+  let visits = get_page_data("visit_count", 0);
+  set_page_data("visit_count", visits + 1); "" +
+-]
+  this page has been visited [visits] times.
+[/]
+
+<style>
+  body {
+    font-size: [get_page_data("visit_count", 0)]px;
+  }
+</style>
